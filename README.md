@@ -1,36 +1,81 @@
-# H1
+# h1
 
-A custom firmware for the M-VAVE FM-1: nine instruments, each a full-screen animated picture you
-play. White or one colour on the bezel's black, so the screen reads bigger than it is.
+Custom firmware for the M-VAVE FM-1. You get nine instruments, and each one is a full-screen animated
+picture you play. Everything is drawn in one ink colour on the bezel's black, so the screen reads
+bigger than it is.
 
-| | Sound | Picture | Knobs |
-|---|---|---|---|
-| **PIP** | chiptune | a fat-pixel creature who hops on every note | SHAPE, WOBBLE, ZAP, CRUNCH |
-| **BONK** | drum kit, one drum per pitch class | twelve shapes that fill, pop and throw rings when hit | TUNE, DECAY, PUNCH, DIRT |
-| **URCHIN** | FM | an outline that is itself an FM wave; chords push out spines | RATIO, DEPTH, FUZZ, TAIL |
-| **TWANG** | plucked strings | eight strings moving like real ones, and a plectrum who walks | DAMP, PICK, TONE, BUZZ |
-| **LAVA** | wavefolder bass | contour lines around blobs that rise with each note | FOLD, HEAT, LEAN, SUB |
-| **KNOT** | additive bells | a harmonograph: the interval you hold decides the figure | BLOOM, RING, TWIST, WARP |
-| **INK** | gliding lead | a scroll the melody is painted on, in a different hand per algorithm | SLIDE, SHAKE, PRESS, DRY |
-| **TIDE** | analog pad | a night sea; each note lifts a swell and lights a star | GLOW, HALO, DRIFT, SURGE |
-| **HAUNT** | spooky ambient | hooded apparitions of hanging thread, fog and black water | FOG, DREAD, SHIVER, DEPTH |
+<p>
+<img src="docs/img/pip.webp" width="104" alt="PIP"> <img src="docs/img/bonk.webp" width="104" alt="BONK"> <img src="docs/img/urchin.webp" width="104" alt="URCHIN">
+<img src="docs/img/twang.webp" width="104" alt="TWANG"> <img src="docs/img/lava.webp" width="104" alt="LAVA"> <img src="docs/img/knot.webp" width="104" alt="KNOT">
+<img src="docs/img/ink.webp" width="104" alt="INK"> <img src="docs/img/tide.webp" width="104" alt="TIDE"> <img src="docs/img/haunt.webp" width="104" alt="HAUNT">
+</p>
 
-PRESETS picks the instrument, ALGORITHM picks one of its eight algorithms, and the four knobs
-are always its four live modulations on the home screen. FX, SEL, ENV, LFO, GLO, ARP and SEQ
-open settings pages that look the same for every instrument: four columns, one per knob, under
-a small map of the button panel with the current page lit.
+**The full guide is at [jakehandy.com/h1](https://jakehandy.com/h1).** It covers every instrument's
+knobs and algorithms, the settings pages, loop and step recording, and FAQs.
 
-SEQ has two modes, swapped by its first column or by holding SEQ. LOOP records what you play
-(REC, then play; REC again to overdub). STEP is a pattern of up to 64 steps drawn as small
-notches along the bottom of the screen: REC turns writing on, a key or chord fills the step
-under the cursor and moves on, EDIT writes a rest, SELECT moves the cursor, PLAY runs it.
-BARS, METER (4/4, 3/4, 5/4, 6/8, 7/8) and GRID or SNAP are the other three columns.
+| | Sound | Knobs |
+|---|---|---|
+| **PIP** | chiptune | SHAPE, WOBBLE, ZAP, CRUNCH |
+| **BONK** | drum kit, a drum on every note of the octave | TUNE, DECAY, PUNCH, DIRT |
+| **URCHIN** | FM | RATIO, DEPTH, FUZZ, TAIL |
+| **TWANG** | plucked strings | DAMP, PICK, TONE, BUZZ |
+| **LAVA** | wavefolder bass | FOLD, HEAT, LEAN, SUB |
+| **KNOT** | additive bells | BLOOM, RING, TWIST, WARP |
+| **INK** | gliding lead | SLIDE, SHAKE, PRESS, DRY |
+| **TIDE** | analog pad | GLOW, HALO, DRIFT, SURGE |
+| **HAUNT** | spooky ambient | FOG, DREAD, SHIVER, DEPTH |
 
-## Status
+<p>
+<img src="docs/img/page.png" width="200" alt="A settings page: four columns, one per knob"> <img src="docs/img/step.png" width="200" alt="A step pattern, the notches along the bottom"> <img src="docs/img/hud.png" width="200" alt="TIDE with the knob strip pinned">
+</p>
 
-The design is being approved in the browser simulator (`dist/h1-simulator.html`), which runs the
-same C code that goes on the device. The device port in `port/fm1` is written but has not been
-compiled or flashed. Nothing should be flashed until the simulator is signed off.
+## Install
 
-See [docs/RESEARCH.md](docs/RESEARCH.md) for the hardware and what was learned from existing
-firmwares, and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is laid out.
+h1 isn't released for the device yet. The design is being approved in the browser simulator first.
+The device port in `port/fm1` is written, but it hasn't been compiled or flashed, and nothing should
+be flashed until the simulator is signed off.
+
+**Try it now in the browser:** open [the simulator](https://jakehandy.com/public/h1/simulator.html),
+or build it yourself with `tools/build_web.sh` and open `dist/h1-simulator.html`. It runs the same C
+code that goes on the device.
+
+**On the FM-1 (once there is a build):** h1 is built on
+[fm1-base](https://github.com/charlesvestal/fm1-base) and installs the same way as other FM-1
+firmwares.
+
+1. Update the FM-1 to stock firmware V15 with M-VAVE's updater.
+2. Connect it over USB to a computer running Chrome or Edge.
+3. Open the h1 installer page, allow MIDI access, and send the package. Keep the cable in until it
+   says it's done.
+
+To go back to stock, run M-VAVE's updater again. If a flash fails, hold OCT − while you power on to
+reach rescue mode. The installer link will be added here with the first device build.
+
+## Hotkeys
+
+| Control | What it does |
+|---|---|
+| PRESETS | Instrument |
+| ALGORITHM | One of the instrument's eight algorithms |
+| KNOB 1–4 | Home screen: the instrument's four live modulations. Settings page: its four columns |
+| SELECT | Home screen: tempo. Settings page: next page. Writing steps: moves the cursor |
+| FX SEL ENV LFO GLO ARP SEQ | Open that settings page. Press it again, or HOME, to go back |
+| REC / PLAY | Loop: REC arms a take, again closes it, again overdubs. PLAY stops and starts it. Step: REC turns step-write on and off, PLAY runs the pattern |
+| EDIT | Pins the knob strip on the home screen. Writing steps: leaves a rest |
+| OCT − / + | Octave, two each way. Press both for the middle octave |
+| hold SEQ | Swap LOOP and STEP |
+| hold REC | Clear the loop or the pattern |
+| hold HOME | Silence everything |
+| hold SAVE | Reset this instrument (everything else saves by itself) |
+
+In the simulator: <kbd>A</kbd>–<kbd>'</kbd> are the white keys from F and <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> <kbd>[</kbd>
+the black keys. <kbd>Z</kbd> <kbd>X</kbd> change the octave, <kbd>←</kbd> <kbd>→</kbd> change the
+instrument, and <kbd>↑</kbd> <kbd>↓</kbd> change the algorithm. <kbd>1</kbd>–<kbd>4</kbd> turn a knob
+up, or down with <kbd>Shift</kbd>.
+
+## For developers
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the code is laid out and
+[docs/RESEARCH.md](docs/RESEARCH.md) for the hardware and what was learned from other firmwares.
+`python3 tools/guide_media.py` renders the pictures in `docs/img` from the current build. Add
+`--site <path to jakehandynew>` to also copy them, and the simulator, to the guide site.
