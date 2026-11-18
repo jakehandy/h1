@@ -1,0 +1,837 @@
+<title>H1 Simulator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c0c0e;
+    --panel: #18181b;
+    --panel-hi: #232327;
+    --line: #2e2e33;
+    --text: #e9e9ec;
+    --dim: #8f8f98;
+    --ink: #c8ff4a;
+    --key: #ecece6;
+    --key-black: #111113;
+    --ui: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 15px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 20px max(16px, env(safe-area-inset-right, 0px)) 56px max(16px, env(safe-area-inset-left, 0px));
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  header h1 {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin: 0;
+    color: var(--ink);
+    transition: color 0.3s;
+  }
+  header p { margin: 0; color: var(--dim); flex: 1 1 220px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip:hover { border-color: var(--dim); }
+  .chip:focus-visible, .btn:focus-visible, .knob:focus-visible, select:focus-visible, summary:focus-visible, .inst-name:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  /* ---- the device ---- */
+  .device {
+    background: linear-gradient(180deg, #1c1c20, #151518);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    padding: 22px 22px 18px;
+    box-shadow: 0 30px 60px -30px #000, inset 0 1px 0 #2c2c31;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .top {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) auto minmax(300px, 1.5fr);
+    gap: 26px;
+    align-items: center;
+  }
+  .left { display: grid; grid-template-columns: repeat(2, auto); gap: 16px 18px; justify-content: center; }
+  .left .oct { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: center; }
+  .right { display: flex; flex-direction: column; gap: 18px; align-items: center; }
+  .knobs { display: flex; gap: 16px; justify-content: center; }
+  .buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; width: 100%; max-width: 380px; }
+
+  .glass {
+    background: #000;
+    border-radius: 14px;
+    padding: 26px;
+    box-shadow: 0 0 0 1px #26262b, inset 0 0 0 1px #000;
+    line-height: 0;
+    justify-self: center;
+    max-width: 100%;
+  }
+  .glass canvas {
+    display: block;
+    width: 480px;
+    max-width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    background: #000;
+    image-rendering: pixelated;
+  }
+  .glass.smooth canvas { image-rendering: auto; }
+
+  .knob {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    width: 64px;
+    cursor: ns-resize;
+    touch-action: none;
+    border-radius: 10px;
+  }
+  .knob .cap {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #3a3a40, #1d1d21 70%);
+    border: 1px solid #000;
+    box-shadow: 0 6px 12px -4px #000, inset 0 1px 0 #55555c;
+    position: relative;
+    will-change: transform;
+  }
+  .knob .cap::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 5px;
+    width: 3px;
+    height: 15px;
+    margin-left: -1.5px;
+    border-radius: 2px;
+    background: var(--text);
+  }
+  .knob.live .cap::after { background: var(--ink); }
+  .knob label, .btn span, .oct .btn span {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    text-align: center;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .knob .hint {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink);
+    min-height: 14px;
+    margin-top: -4px;
+    letter-spacing: 0.04em;
+    transition: opacity 0.2s;
+  }
+  .btn {
+    appearance: none;
+    border: 1px solid #000;
+    background: linear-gradient(180deg, #303035, #232327);
+    border-radius: 8px;
+    min-height: 40px;
+    padding: 5px 2px 6px;
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    gap: 5px;
+    box-shadow: inset 0 1px 0 #47474e, 0 3px 6px -3px #000;
+    touch-action: none;
+  }
+  .btn i {
+    width: 14px;
+    height: 4px;
+    border-radius: 2px;
+    background: #0b0b0c;
+    box-shadow: inset 0 0 0 1px #000;
+  }
+  .btn.lit i { background: var(--ink); box-shadow: 0 0 8px var(--ink); }
+  .btn.down { transform: translateY(1px); background: #1d1d20; }
+  .oct .btn { width: 62px; }
+
+  /* ---- keys ---- */
+  .keys {
+    position: relative;
+    margin-top: 22px;
+    height: 132px;
+    display: flex;
+    border-radius: 0 0 10px 10px;
+    touch-action: none;
+  }
+  .wk {
+    flex: 1 1 0;
+    background: linear-gradient(180deg, #d9d9d2, var(--key) 30%);
+    border: 1px solid #000;
+    border-top: 0;
+    border-radius: 0 0 6px 6px;
+    margin-right: 2px;
+    position: relative;
+  }
+  .wk:last-child { margin-right: 0; }
+  .bk {
+    position: absolute;
+    top: 0;
+    height: 60%;
+    background: linear-gradient(180deg, #2a2a2e, var(--key-black));
+    border: 1px solid #000;
+    border-top: 0;
+    border-radius: 0 0 5px 5px;
+    z-index: 2;
+  }
+  .wk.on { background: var(--ink); }
+  .bk.on { background: var(--ink); }
+  .wk em, .bk em {
+    position: absolute;
+    left: 50%;
+    bottom: 6px;
+    transform: translateX(-50%);
+    font: 600 10px var(--mono);
+    font-style: normal;
+    color: #77776f;
+    pointer-events: none;
+  }
+  .bk em { color: #6d6d75; bottom: 5px; }
+  .wk u, .bk u {
+    position: absolute;
+    left: 50%;
+    top: 5px;
+    width: 5px;
+    height: 5px;
+    margin-left: -2.5px;
+    border-radius: 50%;
+    background: #0003;
+    pointer-events: none;
+  }
+  .bk u { background: #fff2; }
+  .wk.led u, .bk.led u { background: var(--ink); box-shadow: 0 0 6px var(--ink); }
+  .wk.on.led u, .bk.on.led u { background: #000; box-shadow: none; }
+
+  /* ---- under the device ---- */
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    margin: 16px 2px 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--dim);
+  }
+  .strip label { display: flex; align-items: center; gap: 8px; }
+  .strip select {
+    font: inherit;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 6px;
+  }
+  .strip input[type=checkbox] { accent-color: var(--ink); width: 15px; height: 15px; }
+  .meter { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .meter .bar { width: 110px; height: 6px; border-radius: 3px; background: var(--panel-hi); overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; width: 0; background: var(--ink); }
+  .meter .bar i.over { background: #ff5a4a; }
+  .meter b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  details {
+    border-top: 1px solid var(--line);
+    padding: 14px 2px;
+  }
+  details:last-of-type { border-bottom: 1px solid var(--line); }
+  summary {
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 16px;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "+"; font-family: var(--mono); color: var(--ink); width: 14px; }
+  details[open] summary::before { content: "\2212"; }
+  details > div { margin-top: 12px; }
+  .map { display: grid; grid-template-columns: max-content 1fr; gap: 7px 16px; max-width: 760px; }
+  .map dt { font-family: var(--mono); font-size: 12px; color: var(--ink); padding-top: 2px; }
+  .map dd { margin: 0; color: var(--text); }
+  .map dd small, .note { color: var(--dim); font-size: 13px; }
+  .insts { display: grid; gap: 10px; }
+  .inst {
+    display: grid;
+    grid-template-columns: 34px 96px 1fr;
+    gap: 6px 14px;
+    align-items: start;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--panel);
+  }
+  .inst.cur { border-color: var(--ink); }
+  .inst input[type=color] {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: none;
+    cursor: pointer;
+  }
+  .inst-name {
+    font: 700 17px var(--ui);
+    background: none;
+    border: 0;
+    color: var(--text);
+    padding: 4px 0;
+    text-align: left;
+    cursor: pointer;
+  }
+  .inst-name:hover { color: var(--ink); }
+  .inst .rows { font-family: var(--mono); font-size: 12px; color: var(--dim); display: grid; gap: 6px; min-width: 0; }
+  .inst .rows span { display: inline-block; margin-right: 10px; white-space: nowrap; }
+  .inst .rows .k span { color: var(--text); }
+  .inst .rows .a span.cur { color: var(--ink); }
+  .inst .why { grid-column: 2 / -1; color: var(--dim); font-size: 13px; }
+  kbd {
+    font: 600 11px var(--mono);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 1px 5px;
+    background: var(--panel);
+    color: var(--text);
+  }
+
+  @media (max-width: 919px) {
+    .device { padding: 14px 12px 12px; border-radius: 18px; }
+    .top { grid-template-columns: 1fr; gap: 16px; }
+    .glass { order: 0; padding: 16px; }
+    .right { order: 1; }
+    .left { order: 2; grid-template-columns: repeat(4, auto); gap: 12px 8px; }
+    .left .oct { grid-column: 1 / -1; }
+    .knobs { gap: 8px; }
+    .keys { height: 118px; margin-top: 16px; }
+    .wk { margin-right: 1px; }
+    .wk em, .bk em { display: none; }
+    .meter { margin-left: 0; }
+    .inst { grid-template-columns: 34px 1fr; }
+    .inst .rows, .inst .why { grid-column: 1 / -1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    header h1 { transition: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="title">H1</h1>
+    <p>Custom firmware for the FM-1, running here exactly as it would on the device: same code, same 240 × 240 pixels.</p>
+    <button class="chip" id="sound" type="button">sound: <b>tap anything</b></button>
+  </header>
+
+  <section class="device" aria-label="FM-1 panel">
+    <div class="top">
+      <div class="left">
+        <div class="knob" data-pot="1" tabindex="0" role="slider" aria-label="Master volume" id="master"><div class="cap"></div><label>MASTER</label></div>
+        <div class="knob" data-enc="0" tabindex="0" role="slider" aria-label="Select"><div class="cap"></div><label>SELECT</label></div>
+        <div class="knob" data-enc="2" tabindex="0" role="slider" aria-label="Presets"><div class="cap"></div><label>PRESETS</label></div>
+        <div class="knob" data-enc="1" tabindex="0" role="slider" aria-label="Algorithm"><div class="cap"></div><label>ALGORITHM</label></div>
+        <div class="oct">
+          <button class="btn" data-btn="12" type="button"><i></i><span>OCT −</span></button>
+          <button class="btn" data-btn="13" type="button"><i></i><span>OCT +</span></button>
+        </div>
+      </div>
+
+      <div class="glass" id="glass"><canvas id="lcd" width="240" height="240" aria-label="FM-1 screen"></canvas></div>
+
+      <div class="right">
+        <div class="knobs">
+          <div class="knob live" data-enc="3" tabindex="0" role="slider" aria-label="Knob 1"><div class="cap"></div><label>KNOB 1</label><span class="hint"></span></div>
+          <div class="knob live" data-enc="4" tabindex="0" role="slider" aria-label="Knob 2"><div class="cap"></div><label>KNOB 2</label><span class="hint"></span></div>
+          <div class="knob live" data-enc="5" tabindex="0" role="slider" aria-label="Knob 3"><div class="cap"></div><label>KNOB 3</label><span class="hint"></span></div>
+          <div class="knob live" data-enc="6" tabindex="0" role="slider" aria-label="Knob 4"><div class="cap"></div><label>KNOB 4</label><span class="hint"></span></div>
+        </div>
+        <div class="buttons" id="buttons"></div>
+      </div>
+    </div>
+    <div class="keys" id="keys" aria-label="Keyboard, F3 to G5"></div>
+  </section>
+
+  <div class="strip">
+    <label>screen
+      <select id="size">
+        <option value="real">≈ real size</option>
+        <option value="1">1×</option>
+        <option value="2" selected>2×</option>
+        <option value="3">3×</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="emu"> hold to the device's refresh</label>
+    <div class="meter" title="How long the changed part of each frame would take to reach the FM-1's screen. Under 16.7 ms means 60 frames a second.">
+      <span>screen link</span>
+      <div class="bar"><i id="bar"></i></div>
+      <b id="ms">0.0 ms</b>
+      <span id="fps">60 fps</span>
+    </div>
+  </div>
+
+  <details open>
+    <summary>What the panel does</summary>
+    <div>
+      <dl class="map">
+        <dt>PRESETS</dt><dd>The instrument. It appears at once and its name flashes over it.</dd>
+        <dt>ALGORITHM</dt><dd>Eight algorithms per instrument. Each changes the sound a lot and the picture with it.</dd>
+        <dt>KNOB 1–4</dt><dd>On the home screen, always the instrument's four live modulations and nothing else. On a settings page, its four columns, left to right.</dd>
+        <dt>SELECT</dt><dd>Tempo on the home screen. On a settings page it steps to the next page.</dd>
+        <dt>ARP LFO ENV FX</dt><dd>Open that settings page. The same button again, or HOME, goes back.</dd>
+        <dt>SEL</dt><dd>KEYS page: root, scale, glide, hold. <small>Its light stays on while hold is on.</small></dd>
+        <dt>GLO</dt><dd>GLOBAL page: tempo, swing, tune, brightness.</dd>
+        <dt>SEQ</dt><dd>LOOP page: bars, snap, click, overdub.</dd>
+        <dt>REC / PLAY</dt><dd>The loop recorder. REC arms it and it starts on your first note; REC again closes the loop, and again overdubs. PLAY stops and starts it. Hold REC to clear.</dd>
+        <dt>EDIT</dt><dd>Pins the four knob names and values to the top of the home screen.</dd>
+        <dt>HOME</dt><dd>Back to the instrument. On home it replays the name. Hold it to silence everything.</dd>
+        <dt>SAVE</dt><dd>Everything saves by itself per instrument. A tap saves now; holding it resets this instrument.</dd>
+        <dt>OCT − / +</dt><dd>Octave, two each way. Both together: back to the middle.</dd>
+      </dl>
+      <p class="note">Here: drag a knob up and down or scroll over it. Play with the mouse, touch, or the computer keyboard:
+        <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> <kbd>;</kbd> <kbd>'</kbd> are the white keys from F,
+        <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> <kbd>[</kbd> the black ones.
+        <kbd>Z</kbd> <kbd>X</kbd> octave, <kbd>←</kbd> <kbd>→</kbd> instrument, <kbd>↑</kbd> <kbd>↓</kbd> algorithm, <kbd>1</kbd>–<kbd>4</kbd> with <kbd>Shift</kbd> to turn a knob down, without to turn it up.</p>
+    </div>
+  </details>
+
+  <details open>
+    <summary>The five instruments</summary>
+    <div>
+      <div class="insts" id="insts"></div>
+      <p class="note">Click a name to jump to it. The swatch changes that instrument's ink; everything is drawn in shades of the one colour on the bezel's black.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>What this simulator can and can't tell you</summary>
+    <div>
+      <p>The sound and the picture come from the same C code that goes on the FM-1, compiled for the browser, so what you approve here is what gets flashed. The screen meter is the real number of bytes each frame would send to the panel at the speed the fm1-base platform runs it.</p>
+      <p class="note">What it can't show: the device's own processor time for drawing, its speaker, and the feel of the encoders. Those need a first flash, and nothing gets flashed until you say so.</p>
+      <p><button class="chip" id="reset" type="button">reset everything to factory</button></p>
+    </div>
+  </details>
+</div>
+
+<script>
+/*__ASMJS__*/
+</script>
+<script>
+(function () {
+  "use strict";
+  var WASM_B64 = "__WASM_B64__";
+  var $ = function (id) { return document.getElementById(id); };
+  var X = null, mem = null;
+  var canvas = $("lcd"), ctx2d = canvas.getContext("2d"), image = ctx2d.createImageData(240, 240);
+  var actx = null, node = null, gain = 0.8, soundOn = false, muted = false;
+  var SR = 44100;
+  var STORE = "h1.state.v1";
+
+  function bytesOf(b64) {
+    var s = atob(b64), n = s.length, u = new Uint8Array(n), i;
+    for (i = 0; i < n; i++) u[i] = s.charCodeAt(i);
+    return u;
+  }
+  function boot(done) {
+    var fallback = function () {
+      if (typeof H1ASM === "function") { X = H1ASM(); done("js"); }
+      else done(null);
+    };
+    try {
+      WebAssembly.instantiate(bytesOf(WASM_B64), {}).then(function (r) { X = r.instance.exports; done("wasm"); }, fallback);
+    } catch (e) { fallback(); }
+  }
+  function u8() { if (!mem || mem.buffer !== X.memory.buffer) mem = new Uint8Array(X.memory.buffer); return mem; }
+  function cstr(p) { var m = u8(), s = ""; while (m[p]) s += String.fromCharCode(m[p++]); return s; }
+  function hex(n) { return "#" + ("000000" + n.toString(16)).slice(-6); }
+
+  /* ---- saved state: the page's stand-in for the device's flash ---- */
+  function loadState() {
+    try {
+      var s = localStorage.getItem(STORE);
+      if (!s) return;
+      var b = bytesOf(s), p = X.w_scratch();
+      if (b.length !== X.w_state_size()) return;
+      u8().set(b, p);
+      X.w_state_load(b.length);
+    } catch (e) { /* no storage here: start from factory */ }
+  }
+  function saveState() {
+    try {
+      var p = X.w_state_save(), n = X.w_state_size(), m = u8(), s = "", i;
+      for (i = 0; i < n; i++) s += String.fromCharCode(m[p + i]);
+      localStorage.setItem(STORE, btoa(s));
+    } catch (e) { /* fine */ }
+  }
+
+  /* ---- audio ---- */
+  function startAudio() {
+    if (!actx) return;
+    if (actx.state !== "running") actx.resume().then(function () { soundOn = true; label(); }, function () {});
+    else { soundOn = true; label(); }
+  }
+  function label() {
+    $("sound").innerHTML = "sound: <b>" + (!actx ? "not available" : (!soundOn ? "tap anything" : (muted ? "muted" : "on"))) + "</b>";
+  }
+  function makeAudio() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      actx = new AC({ sampleRate: 44100, latencyHint: "interactive" });
+      SR = actx.sampleRate;
+    } catch (e) { actx = null; }
+  }
+  function wireAudio() {
+    if (!actx) return;
+    node = actx.createScriptProcessor(512, 0, 2);
+    node.onaudioprocess = function (ev) {
+      var L = ev.outputBuffer.getChannelData(0), R = ev.outputBuffer.getChannelData(1), n = L.length, g = muted ? 0 : gain * gain, i;
+      var p = X.w_render(n);
+      var f = new Float32Array(X.memory.buffer, p, n * 2);
+      for (i = 0; i < n; i++) { L[i] = f[2 * i] * g; R[i] = f[2 * i + 1] * g; }
+    };
+    node.connect(actx.destination);
+    soundOn = actx.state === "running";
+  }
+
+  /* ---- panel ---- */
+  var BTN = ["FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"];
+  var btnEls = [], keyEls = [], hintEls = [], knobAngle = {};
+
+  function press(el, b, down) {
+    if (!X) return;
+    el.classList.toggle("down", !!down);
+    X.w_button(b, down ? 1 : 0);
+  }
+  function bindButton(el, b) {
+    btnEls[b] = el;
+    el.addEventListener("pointerdown", function (e) { e.preventDefault(); startAudio(); el.setPointerCapture(e.pointerId); press(el, b, 1); });
+    var up = function () { if (el.classList.contains("down")) press(el, b, 0); };
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    el.addEventListener("keydown", function (e) { if ((e.key === " " || e.key === "Enter") && !e.repeat) { e.preventDefault(); press(el, b, 1); } });
+    el.addEventListener("keyup", function (e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); press(el, b, 0); } });
+  }
+  function buildButtons() {
+    var host = $("buttons"), i, el;
+    for (i = 0; i < 12; i++) {
+      el = document.createElement("button");
+      el.type = "button";
+      el.className = "btn";
+      el.innerHTML = "<i></i><span>" + BTN[i] + "</span>";
+      host.appendChild(el);
+      bindButton(el, i);
+    }
+    Array.prototype.forEach.call(document.querySelectorAll(".oct .btn"), function (b) { bindButton(b, +b.dataset.btn); });
+  }
+
+  function turn(el, d) {
+    if (!X || !d) return;
+    var cap = el.firstElementChild, id = el.dataset.enc !== undefined ? "e" + el.dataset.enc : "pot";
+    if (el.dataset.pot) {
+      gain = Math.max(0, Math.min(1, gain + d * 0.04));
+      cap.style.transform = "rotate(" + (-135 + 270 * gain) + "deg)";
+      return;
+    }
+    knobAngle[id] = (knobAngle[id] || 0) + d * 15;
+    cap.style.transform = "rotate(" + knobAngle[id] + "deg)";
+    X.w_encoder(+el.dataset.enc, d);
+  }
+  function bindKnob(el) {
+    var acc = 0, last = null;
+    el.addEventListener("pointerdown", function (e) { e.preventDefault(); startAudio(); el.focus(); el.setPointerCapture(e.pointerId); last = { x: e.clientX, y: e.clientY }; acc = 0; });
+    el.addEventListener("pointermove", function (e) {
+      if (!last) return;
+      acc += (last.y - e.clientY) + (e.clientX - last.x);
+      last = { x: e.clientX, y: e.clientY };
+      var d = acc > 0 ? Math.floor(acc / 9) : Math.ceil(acc / 9);
+      if (d) { acc -= d * 9; turn(el, d); }
+    });
+    var end = function () { last = null; };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+    el.addEventListener("wheel", function (e) { e.preventDefault(); startAudio(); turn(el, e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    el.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowUp" || e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); turn(el, 1); }
+      if (e.key === "ArrowDown" || e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); turn(el, -1); }
+    });
+  }
+
+  var NOTE = ["F", "F#", "G", "G#", "A", "A#", "B", "C", "C#", "D", "D#", "E"];
+  var held = {};                                 /* pointer id or "k"+code -> key */
+  var count = [];
+  function keyDown(k) { count[k] = (count[k] || 0) + 1; if (count[k] === 1 && X) { X.w_key(k, 1); keyEls[k].classList.add("on"); } }
+  function keyUp(k) { if (!count[k]) return; count[k]--; if (!count[k] && X) { X.w_key(k, 0); keyEls[k].classList.remove("on"); } }
+  function buildKeys() {
+    var host = $("keys"), whites = 16, wi = 0, k, el, black;
+    for (k = 0; k < 27; k++) {
+      black = NOTE[k % 12].length > 1;
+      el = document.createElement("div");
+      el.dataset.key = k;
+      if (black) {
+        el.className = "bk";
+        el.style.width = (100 / whites * 0.62) + "%";
+        el.style.left = (100 / whites * (wi - 0.31)) + "%";
+      } else {
+        el.className = "wk";
+        wi++;
+      }
+      el.innerHTML = "<u></u>";
+      keyEls[k] = el;
+      host.appendChild(el);
+    }
+    var at = function (e) {
+      var t = document.elementFromPoint(e.clientX, e.clientY);
+      return t && t.dataset && t.dataset.key !== undefined && host.contains(t) ? +t.dataset.key : -1;
+    };
+    host.addEventListener("pointerdown", function (e) {
+      var k = at(e);
+      e.preventDefault();
+      startAudio();
+      if (k < 0) return;
+      host.setPointerCapture(e.pointerId);
+      held[e.pointerId] = k;
+      keyDown(k);
+    });
+    host.addEventListener("pointermove", function (e) {
+      if (held[e.pointerId] === undefined) return;
+      var k = at(e);
+      if (k >= 0 && k !== held[e.pointerId]) { keyUp(held[e.pointerId]); held[e.pointerId] = k; keyDown(k); }
+    });
+    var up = function (e) { if (held[e.pointerId] !== undefined) { keyUp(held[e.pointerId]); delete held[e.pointerId]; } };
+    host.addEventListener("pointerup", up);
+    host.addEventListener("pointercancel", up);
+    host.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  }
+
+  var KEYMAP = { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyR: 5, KeyF: 6, KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16, BracketLeft: 17, Quote: 18 };
+  function tapButton(b) { X.w_button(b, 1); setTimeout(function () { X.w_button(b, 0); }, 60); }
+  function bindComputerKeys() {
+    var labels = { 0: "A", 1: "W", 2: "S", 3: "E", 4: "D", 5: "R", 6: "F", 7: "G", 8: "Y", 9: "H", 10: "U", 11: "J", 12: "K", 13: "O", 14: "L", 15: "P", 16: ";", 17: "[", 18: "'" };
+    Object.keys(labels).forEach(function (k) { var em = document.createElement("em"); em.textContent = labels[k]; keyEls[k].appendChild(em); });
+    window.addEventListener("keydown", function (e) {
+      var t = e.target;
+      if (!X || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      startAudio();
+      if (KEYMAP[e.code] !== undefined) {
+        e.preventDefault();
+        if (!e.repeat && held["k" + e.code] === undefined) { held["k" + e.code] = KEYMAP[e.code]; keyDown(KEYMAP[e.code]); }
+        return;
+      }
+      if (e.repeat && e.code !== "ArrowUp" && e.code !== "ArrowDown" && !/^Digit[1-4]$/.test(e.code)) return;
+      switch (e.code) {
+        case "KeyZ": tapButton(12); break;
+        case "KeyX": tapButton(13); break;
+        case "ArrowRight": turnEnc(2, 1); break;
+        case "ArrowLeft": turnEnc(2, -1); break;
+        case "ArrowUp": turnEnc(1, 1); break;
+        case "ArrowDown": turnEnc(1, -1); break;
+        case "Digit1": case "Digit2": case "Digit3": case "Digit4": turnEnc(2 + +e.code.slice(5), e.shiftKey ? -1 : 1); break;
+        default: return;
+      }
+      e.preventDefault();
+    });
+    window.addEventListener("keyup", function (e) {
+      var id = "k" + e.code;
+      if (held[id] !== undefined) { keyUp(held[id]); delete held[id]; }
+    });
+    window.addEventListener("blur", function () {
+      Object.keys(held).forEach(function (id) { keyUp(held[id]); delete held[id]; });
+    });
+  }
+  function turnEnc(enc, d) {
+    var el = document.querySelector('.knob[data-enc="' + enc + '"]');
+    if (el) turn(el, d);
+  }
+
+  /* ---- the instruments list ---- */
+  var WHY = [
+    "Chiptune. A fat-pixel creature who hops on every note, opens his mouth with the pulse width, sways with the vibrato and loses resolution as you crunch him.",
+    "FM. His outline is an FM waveform wrapped into a circle. Notes push spines out at their place on a clock of the twelve pitches, so chords make shapes.",
+    "Plucked strings. Eight real strings that move the way a plucked string moves, a felt mute, and a small plectrum who walks to wherever you pick.",
+    "Vowel choir. One head per note: one note is one giant head, a chord crowds the screen. The mouths make the vowel you dial.",
+    "Analog pad. A night sea under a moon. The keyboard lies across the water: each note lifts a swell at its own place and lights a star above it."
+  ];
+  var instEls = [], algoEls = [], NI = 0;
+  function buildInsts() {
+    var host = $("insts"), i, k, row, html;
+    NI = X.w_instrument_count();
+    for (i = 0; i < NI; i++) {
+      row = document.createElement("div");
+      row.className = "inst";
+      html = '<input type="color" aria-label="Ink colour for ' + cstr(X.w_name(0, i, 0)) + '" value="' + hex(X.w_ink(i)) + '">';
+      html += '<button class="inst-name" type="button">' + cstr(X.w_name(0, i, 0)) + "</button>";
+      html += '<div class="rows"><div class="k">';
+      for (k = 0; k < 4; k++) html += "<span>" + (k + 1) + " " + cstr(X.w_name(1, i, k)) + "</span>";
+      html += '</div><div class="a">';
+      for (k = 0; k < 8; k++) html += "<span>" + cstr(X.w_name(2, i, k)) + "</span>";
+      html += '</div></div><div class="why">' + (WHY[i] || "") + "</div>";
+      row.innerHTML = html;
+      host.appendChild(row);
+      instEls[i] = row;
+      algoEls[i] = row.querySelectorAll(".a span");
+      (function (idx, r) {
+        r.querySelector(".inst-name").addEventListener("click", function () {
+          startAudio();
+          var d = idx - X.w_instrument();
+          if (d) X.w_encoder(2, d); else tapButton(6);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+        r.querySelector("input").addEventListener("input", function (e) {
+          X.w_set_ink(idx, parseInt(e.target.value.slice(1), 16));
+          saveSoon = true;
+          shown.inst = -1;
+        });
+      })(i, row);
+    }
+  }
+
+  /* ---- the frame loop ---- */
+  var shown = { inst: -1, algo: -1, page: -1, btn: -1, keys: -1 };
+  var busyUntil = 0, linkMs = 0, shownFrames = 0, fpsT = 0, fpsShown = 60, lastT = 0, saveSoon = false, pumped = 0;
+  function sync() {
+    var inst = X.w_instrument(), algo = X.w_algorithm(), page = X.w_page(), b = X.w_button_leds(), kl = X.w_key_leds(), i, on;
+    if (inst !== shown.inst) {
+      var ink = hex(X.w_ink(inst));
+      document.documentElement.style.setProperty("--ink", ink);
+      for (i = 0; i < NI; i++) instEls[i].classList.toggle("cur", i === inst);
+      for (i = 0; i < 4; i++) hintEls[i].textContent = cstr(X.w_name(1, inst, i));
+      shown.inst = inst;
+      shown.algo = -1;
+    }
+    if (algo !== shown.algo) {
+      for (i = 0; i < NI; i++)
+        Array.prototype.forEach.call(algoEls[i], function (el, k) { el.classList.toggle("cur", i === inst && k === algo); });
+      shown.algo = algo;
+    }
+    if (page !== shown.page) {
+      for (i = 0; i < 4; i++) hintEls[i].style.opacity = page ? 0.25 : 1;
+      shown.page = page;
+    }
+    if (b !== shown.btn) {
+      for (i = 0; i < 14; i++) if (btnEls[i]) btnEls[i].classList.toggle("lit", !!(b >> i & 1));
+      shown.btn = b;
+    }
+    if (kl !== shown.keys) {
+      for (i = 0; i < 27; i++) { on = !!(kl >> i & 1); keyEls[i].classList.toggle("led", on); }
+      shown.keys = kl;
+    }
+  }
+  function frame(t) {
+    requestAnimationFrame(frame);
+    var dt = Math.min(0.1, (t - lastT) / 1000), bytes, ms;
+    lastT = t;
+    if (!actx || actx.state !== "running") {     /* no sound yet: keep the engine's clock running silently */
+      pumped += dt * SR;
+      var n = Math.min(4096, Math.floor(pumped));
+      if (n > 0) { X.w_render(n); pumped -= n; }
+    }
+    if ($("emu").checked && t < busyUntil) return;
+    bytes = X.w_frame(Math.floor(t) >>> 0);
+    ms = bytes * 8 / 44000;
+    busyUntil = t + ms - 4;
+    linkMs += (ms - linkMs) * 0.08;
+    image.data.set(new Uint8Array(X.memory.buffer, X.w_rgba(), 240 * 240 * 4));
+    ctx2d.putImageData(image, 0, 0);
+    sync();
+    shownFrames++;
+    if (t - fpsT > 500) {
+      var est = Math.min(60, 1000 / Math.max(16.67, linkMs));
+      $("ms").textContent = linkMs.toFixed(1) + " ms";
+      $("fps").textContent = "≈ " + Math.round(est) + " fps on the device";
+      $("bar").style.width = Math.min(100, linkMs / 16.67 * 100) + "%";
+      $("bar").className = linkMs > 16.67 ? "over" : "";
+      fpsT = t;
+      shownFrames = 0;
+      if (X.w_state_dirty() || saveSoon) { saveState(); saveSoon = false; }
+    }
+  }
+
+  function setSize() {
+    var v = $("size").value, c = canvas, g = $("glass");
+    try { localStorage.setItem("h1.size", v); } catch (e) { /* fine */ }
+    c.style.width = v === "real" ? "23.4mm" : (240 * +v) + "px";
+    g.classList.toggle("smooth", v === "real");
+    g.style.padding = v === "real" ? "7mm" : "";
+  }
+
+  /* ---- go ---- */
+  makeAudio();
+  boot(function (kind) {
+    if (!kind) {
+      document.querySelector("header p").textContent = "This browser would not start the firmware core.";
+      return;
+    }
+    X.w_init(SR);
+    loadState();
+    wireAudio();
+    buildButtons();
+    Array.prototype.forEach.call(document.querySelectorAll(".knob"), bindKnob);
+    hintEls = Array.prototype.slice.call(document.querySelectorAll(".knob .hint"));
+    $("master").firstElementChild.style.transform = "rotate(" + (-135 + 270 * gain) + "deg)";
+    buildKeys();
+    bindComputerKeys();
+    buildInsts();
+    try { var sv = localStorage.getItem("h1.size"); if (sv) $("size").value = sv; } catch (e) { /* fine */ }
+    if (window.innerWidth < 600 && $("size").value === "3") $("size").value = "2";
+    setSize();
+    $("size").addEventListener("change", setSize);
+    $("sound").addEventListener("click", function () {
+      if (!actx) return;
+      if (!soundOn) startAudio(); else { muted = !muted; label(); }
+    });
+    $("reset").addEventListener("click", function () {
+      try { localStorage.removeItem(STORE); } catch (e) { /* fine */ }
+      X.w_init(SR);
+      shown.inst = shown.algo = shown.page = -1;
+      Array.prototype.forEach.call(document.querySelectorAll(".inst input"), function (el, i) { el.value = hex(X.w_ink(i)); });
+    });
+    label();
+    lastT = performance.now();
+    requestAnimationFrame(frame);
+  });
+})();
+</script>

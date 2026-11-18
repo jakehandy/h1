@@ -1,0 +1,15 @@
+# H1's build settings for fm1-base's tools/build.py. Not yet built: see app.c.
+name = "H1"
+id_prefix = "FM-1_48"
+usb_manufacturer = "H1"
+usb_product = "H1 FM-1"
+# the core is the DSP and the drawing: separate units at -O2, with the device's section names
+o2 = ["../../core/*.c"]
+o2_cflags = ["-DH1_DEVICE=1"]
+ble = false
+usb_audio_in = false
+tagline = "five animated instruments for the FM-1"
+licence = "TBD"
+author = ""
+description = "Five instruments, each a full-screen animated picture you play: PIP, URCHIN, TWANG, YAWP and TIDE."
+tags = ["synth"]

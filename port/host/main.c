@@ -1,0 +1,115 @@
+/* H1 host port: runs the core on a computer from a small script and writes what it made:
+ * frames as PGM/PPM images and the sound as a WAV. No hardware, no browser: this is where the
+ * art is tuned and where tests run.
+ *
+ *   h1host OUTDIR [script...]
+ * Script words (whitespace separated):
+ *   inst N        switch instrument        algo N        set algorithm (via detents)
+ *   knob I V      set home knob I to V     enc E D       turn encoder E by D detents
+ *   key K 1|0     press or release a key   btn B 1|0     press or release a button
+ *   run MS        advance MS milliseconds  shot NAME     write OUTDIR/NAME.ppm
+ *   wav NAME      start writing audio      bytes         print the present() byte count stats
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "../../core/h1.h"
+
+static uint32_t now_ms;
+static FILE *wav;
+static uint32_t wav_frames;
+static const char *outdir = ".";
+static uint64_t bytes_sum;
+static uint32_t bytes_max, frames_n;
+
+static void wav_header(FILE *f, uint32_t frames)
+{
+    uint32_t sr = 44100, data = frames * 4, riff = 36 + data, br = sr * 4;
+    uint16_t pcm = 1, ch = 2, ba = 4, bits = 16;
+    uint32_t fmtlen = 16;
+    fseek(f, 0, SEEK_SET);
+    fwrite("RIFF", 1, 4, f); fwrite(&riff, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f);
+    fwrite(&fmtlen, 4, 1, f); fwrite(&pcm, 2, 1, f); fwrite(&ch, 2, 1, f); fwrite(&sr, 4, 1, f);
+    fwrite(&br, 4, 1, f); fwrite(&ba, 2, 1, f); fwrite(&bits, 2, 1, f);
+    fwrite("data", 1, 4, f); fwrite(&data, 4, 1, f);
+}
+
+static void run(uint32_t ms)
+{
+    static int32_t buf[735 * 2];
+    uint32_t end = now_ms + ms;
+    while (now_ms < end) {
+        uint32_t i, b;
+        h1_render(buf, 735);                     /* 1/60 s of audio */
+        if (wav) {
+            for (i = 0; i < 735 * 2; i++) {
+                int16_t s = (int16_t)(buf[i] >> 8);
+                fwrite(&s, 2, 1, wav);
+            }
+            wav_frames += 735;
+        }
+        now_ms += 1000 / 60 + (frames_n % 3 == 0);
+        h1_frame(now_ms);
+        b = h1_present(0);
+        bytes_sum += b;
+        if (b > bytes_max && frames_n > 2) bytes_max = b;
+        frames_n++;
+    }
+}
+
+static void shot(const char *name)
+{
+    char path[512];
+    const uint8_t *fb = h1_framebuffer();
+    const uint16_t *pal = h1_palette();
+    FILE *f;
+    int i;
+    snprintf(path, sizeof path, "%s/%s.ppm", outdir, name);
+    f = fopen(path, "wb");
+    if (!f) { perror(path); exit(1); }
+    fprintf(f, "P6\n240 240\n255\n");
+    for (i = 0; i < 240 * 240; i++) {
+        uint16_t c = pal[fb[i]];
+        uint8_t rgb[3] = {(uint8_t)(((c >> 11) & 31) * 255 / 31), (uint8_t)(((c >> 5) & 63) * 255 / 63), (uint8_t)((c & 31) * 255 / 31)};
+        fwrite(rgb, 1, 3, f);
+    }
+    fclose(f);
+}
+
+int main(int argc, char **argv)
+{
+    int i = 2;
+    if (argc < 2) { fprintf(stderr, "usage: h1host OUTDIR script...\n"); return 2; }
+    outdir = argv[1];
+    h1_init(44100);
+    run(20);
+#define ARG(n) (i + (n) < argc ? atoi(argv[i + (n)]) : 0)
+    while (i < argc) {
+        const char *w = argv[i];
+        if (!strcmp(w, "inst")) { int d = ARG(1) - h1_instrument(); h1_encoder(H1_ENC_PRESET, d); i += 2; }
+        else if (!strcmp(w, "enc")) { h1_encoder(ARG(1), ARG(2)); i += 3; }
+        else if (!strcmp(w, "algo")) { h1_encoder(H1_ENC_ALGO, ARG(1)); i += 2; }
+        else if (!strcmp(w, "knob")) { h1_midi(0xB0, (uint8_t)(20 + ARG(1)), (uint8_t)(ARG(2) * 127 / 100)); i += 3; }
+        else if (!strcmp(w, "key")) { h1_key(ARG(1), ARG(2)); i += 3; }
+        else if (!strcmp(w, "btn")) { h1_button(ARG(1), ARG(2)); i += 3; }
+        else if (!strcmp(w, "run")) { run((uint32_t)ARG(1)); i += 2; }
+        else if (!strcmp(w, "shot")) { shot(argv[i + 1]); i += 2; }
+        else if (!strcmp(w, "wav")) {
+            char path[512];
+            if (wav) { wav_header(wav, wav_frames); fclose(wav); }
+            snprintf(path, sizeof path, "%s/%s.wav", outdir, argv[i + 1]);
+            wav = fopen(path, "wb");
+            wav_frames = 0;
+            if (wav) wav_header(wav, 0);
+            i += 2;
+        } else if (!strcmp(w, "bytes")) {
+            printf("frames %u  avg %u bytes (%.1f ms at 44 Mbit/s)  max %u bytes (%.1f ms)\n", frames_n,
+                   (unsigned)(bytes_sum / (frames_n ? frames_n : 1)), (double)(bytes_sum / (frames_n ? frames_n : 1)) * 8.0 / 44000.0,
+                   bytes_max, bytes_max * 8.0 / 44000.0);
+            bytes_sum = 0; bytes_max = 0; frames_n = 0;
+            i += 1;
+        } else { fprintf(stderr, "unknown word %s\n", w); return 2; }
+    }
+    if (wav) { wav_header(wav, wav_frames); fclose(wav); }
+    return 0;
+}
