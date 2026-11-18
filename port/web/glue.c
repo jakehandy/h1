@@ -32,7 +32,7 @@ void *memmove(void *d, const void *s, size_t_ n)
 static int32_t abuf[MAXN * 2];
 static float fbuf[MAXN * 2];
 static uint8_t rgba[H1_W * H1_H * 4];
-static uint8_t scratch[1024];
+static uint8_t scratch[2048];
 static uint32_t rects, rect_px;
 
 static void count_rect(int x, int y, int w, int h)
@@ -102,6 +102,14 @@ EXPORT(w_ink) uint32_t w_ink(int inst)
     return ((uint32_t)c[0] << 16) | ((uint32_t)c[1] << 8) | c[2];
 }
 EXPORT(w_set_ink) void w_set_ink(int inst, uint32_t rgb) { h1_set_ink(inst, (uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb); }
+
+/* every encoder as a number, for the page's sliders */
+EXPORT(w_ctl) int w_ctl(int e) { return h1_control(e, 0, 0, 0, 0); }
+EXPORT(w_ctl_lo) int w_ctl_lo(int e) { int v = 0; h1_control(e, &v, 0, 0, 0); return v; }
+EXPORT(w_ctl_hi) int w_ctl_hi(int e) { int v = 0; h1_control(e, 0, &v, 0, 0); return v; }
+EXPORT(w_ctl_name) const char *w_ctl_name(int e) { const char *s = ""; h1_control(e, 0, 0, &s, 0); return s; }
+EXPORT(w_ctl_text) const char *w_ctl_text(int e) { const char *s = ""; h1_control(e, 0, 0, 0, &s); return s; }
+EXPORT(w_ctl_set) void w_ctl_set(int e, int v) { h1_control_set(e, v); }
 
 /* saved state, the way the device keeps it in flash */
 EXPORT(w_scratch) uint8_t *w_scratch(void) { return scratch; }

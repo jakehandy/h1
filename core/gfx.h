@@ -26,6 +26,8 @@ void g_ring(f32 cx, f32 cy, f32 r, f32 w, f32 a);
 void g_ellipse(f32 cx, f32 cy, f32 rx, f32 ry, f32 w, f32 a);   /* w <= 0: filled */
 void g_rect(f32 x, f32 y, f32 w, f32 h, f32 a);            /* filled, x,y = top-left edge */
 void g_poly(const f32 *xy, int n, int closed, f32 w, f32 a);
+void g_fill(const f32 *xy, int n, f32 a);                  /* a filled convex polygon, either winding */
+void g_vspan(int x, f32 y0, f32 y1, f32 a);                /* one column of pixels from y0 to y1 (edges), soft ends */
 void g_arc(f32 cx, f32 cy, f32 r, f32 t0, f32 t1, f32 w, f32 a);   /* angles in turns, 0 = east, clockwise on screen */
 
 /* stroke font: capitals, digits, a few signs. size = cap height in pixels. */

@@ -59,3 +59,9 @@ const char *h1_algo_name(int inst, int a);       /* eight per instrument */
 void h1_ink(int inst, uint8_t rgb[3]);
 void h1_set_ink(int inst, uint8_t r, uint8_t g, uint8_t b);
 uint32_t h1_voices_active(void);
+
+/* Every encoder as a number: returns what it is set to right now and (where the pointers are not
+ * null) its range, the name of what it is tied to and its value as text. The simulator draws its
+ * sliders from this; set() moves a control there outright, the way a slider wants. */
+int h1_control(int enc, int *lo, int *hi, const char **name, const char **text);
+void h1_control_set(int enc, int value);

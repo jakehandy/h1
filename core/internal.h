@@ -5,7 +5,8 @@
 #include "gfx.h"
 
 #define NVOICE 8
-#define NINST 5
+#define NSTEP 64                 /* the step sequencer's pattern, at most */
+#define NINST 9
 #define NALGO 8
 #define CTRL 32                  /* frames per control block: envelopes, LFO, coefficients */
 #define KS_LEN 1024              /* a string's delay line: down to 43 Hz at 44.1 kHz */
@@ -49,7 +50,7 @@ typedef struct InstParams {
 } InstParams;
 
 #define H1_MAGIC 0x31483148u     /* "H1H1" */
-#define H1_VERSION 1u
+#define H1_VERSION 2u
 
 typedef struct H1State {
     uint32_t magic;
@@ -59,10 +60,11 @@ typedef struct H1State {
     uint8_t hud;                 /* the knob strip pinned on the home screen */
     uint8_t keys[4];             /* root, scale, glide, hold */
     uint8_t glo[4];              /* tempo, swing, tune, bright */
-    uint8_t loop[4];             /* bars, quantise, click, dub */
+    uint8_t seq[8];              /* mode (loop, step), bars, meter, loop snap, step grid */
     InstParams ip[NINST];
     uint8_t ink[NINST][3];
     uint8_t rsv[5];
+    uint8_t steps[NSTEP][4];     /* the step pattern: up to four notes a step, note + 1, 0 = none */
 } H1State;
 
 extern H1State st;
@@ -80,7 +82,7 @@ typedef struct Blk {
 
 /* ---- what an instrument's picture gets every frame ------------------------------------ */
 typedef struct VVoice {
-    uint8_t on, gate;
+    uint8_t on, gate, note;
     uint32_t serial;
     f32 pitch, env, age;
 } VVoice;
@@ -117,11 +119,11 @@ typedef struct InstDef {
     void (*draw)(const Vis *vis);
 } InstDef;
 
-extern const InstDef inst_pip, inst_urchin, inst_twang, inst_yawp, inst_tide;
+extern const InstDef inst_pip, inst_bonk, inst_urchin, inst_twang, inst_lava, inst_knot, inst_ink, inst_tide, inst_haunt;
 extern const InstDef *const insts[NINST];
 
 /* ---- settings pages ------------------------------------------------------------------- */
-enum { PG_HOME, PG_ARP, PG_LFO, PG_ENV, PG_FX, PG_KEYS, PG_GLO, PG_LOOP, NPAGE };
+enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, NPAGE };
 enum { PK_PCT, PK_ENUM, PK_INT };
 
 typedef struct ParamDef {
@@ -139,18 +141,35 @@ typedef struct PageDef {
 } PageDef;
 
 extern const PageDef pages[NPAGE];
+const ParamDef *page_param(int page, int i);     /* (the SEQ page's last column depends on its mode) */
 uint8_t *page_value(int page, int i);
 
 /* ---- engine (synth.c): everything below runs in the audio interrupt, except where noted - */
-enum { EV_NOTE_ON = 1, EV_NOTE_OFF, EV_PANIC, EV_INST, EV_UNLATCH, EV_REC, EV_PLAY, EV_CLEAR };
+enum { EV_NOTE_ON = 1, EV_NOTE_OFF, EV_PANIC, EV_INST, EV_UNLATCH, EV_REC, EV_PLAY, EV_CLEAR,
+       EV_STEP_MOVE,             /* the step cursor: a = detents + 128 */
+       EV_STEP_REST,             /* empty the step under the cursor and move on */
+       EV_SEQ_MODE };            /* loop <-> step: stop whichever was running */
 enum { LOOP_EMPTY, LOOP_IDLE, LOOP_ARMED, LOOP_REC, LOOP_PLAY, LOOP_DUB };
+enum { SEQ_LOOP, SEQ_STEP };
+
+/* what the screen needs to know about the sequencer */
+typedef struct SeqInfo {
+    int mode;                    /* SEQ_LOOP or SEQ_STEP */
+    int loop_state;
+    f32 loop_pos;                /* 0..1 */
+    int playing, write;          /* step mode */
+    int nsteps, per_bar, bars;
+    int cursor, at;              /* the step being edited, the step sounding */
+} SeqInfo;
+void eng_seq_info(SeqInfo *si);
+int seq_bar_ticks(void);                         /* 96 ticks to the quarter note */
+int seq_grid_ticks(void);
+int seq_accent(int tick_in_bar);                 /* 2 the bar's first beat, 1 another beat, 0 between */
 
 void eng_init(uint32_t sample_rate);
 void eng_post(int type, int a);                  /* main loop -> audio, lock-free */
 void eng_render(int32_t *lr, uint32_t n);
 void eng_snapshot(Vis *vis);                     /* main loop: copy what the picture needs */
-int eng_loop_state(void);
-f32 eng_loop_pos(void);                          /* 0..1 */
 uint32_t eng_sounding_lo(void);                  /* notes sounding, as key bits for the LEDs */
 uint32_t eng_voices(void);
 extern Voice voices[NVOICE];

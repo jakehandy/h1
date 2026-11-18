@@ -12,9 +12,9 @@ static void defaults(void)
     st.glo[0] = 112;                             /* tempo */
     st.glo[2] = 50;                              /* tune: centre */
     st.glo[3] = 100;                             /* bright */
-    st.loop[0] = 1;                              /* 2 bars */
-    st.loop[1] = 1;                              /* snap to 1/16 */
-    st.loop[3] = 1;                              /* dub */
+    st.seq[1] = 1;                               /* 2 bars */
+    st.seq[3] = 1;                               /* the loop snaps to 1/16 */
+    st.seq[4] = 1;                               /* steps of 1/16 */
     for (i = 0; i < NINST; i++) {
         st.ip[i] = insts[i]->def;
         st.ink[i][0] = insts[i]->ink[0];
@@ -58,13 +58,19 @@ int h1_state_load(const void *blob, uint32_t size)
         for (j = 0; j < 4; j++)
             if (st.ip[i].knob[j] > 100) st.ip[i].knob[j] = 100;
         if (st.ip[i].algo >= NALGO) st.ip[i].algo = 0;
-        for (pg = PG_ARP; pg < NPAGE; pg++)
+        for (pg = 1; pg < NPAGE; pg++)
             for (j = 0; j < 4; j++) {
                 uint8_t *v = page_value(pg, j);
-                *v = (uint8_t)iclamp(*v, pages[pg].p[j].min, pages[pg].p[j].max);
+                *v = (uint8_t)iclamp(*v, page_param(pg, j)->min, page_param(pg, j)->max);
             }
         st.inst = keep;
     }
+    st.seq[0] &= 1;
+    if (st.seq[3] > 2) st.seq[3] = 1;
+    if (st.seq[4] > 2) st.seq[4] = 1;
+    for (i = 0; i < NSTEP; i++)
+        for (j = 0; j < 4; j++)
+            if (st.steps[i][j] > 128) st.steps[i][j] = 0;
     eng_init(0);
     ui_init();
     return 0;

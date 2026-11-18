@@ -3,9 +3,9 @@
 ```
 core/        the whole firmware: portable C99, single-precision float, no libc, no malloc
   h1.h         the public face: panel in, sound and picture out
-  synth.c      voices, envelopes, LFO, arp, loop recorder, the event queue from the UI
+  synth.c      voices, envelopes, LFO, arp, loop recorder, step sequencer, the event queue from the UI
   fx.c         tone, echo, space
-  gfx.c        anti-aliased lines, discs, rings, ellipses, a stroke font
+  gfx.c        anti-aliased lines, discs, rings, ellipses, filled polygons, a stroke font
   ui.c         what every control does, the name flash, the knob strip, the settings pages
   inst_*.c     one file per instrument: its sound and its picture, side by side
 port/web/    the browser simulator: the core as WebAssembly, one HTML file
@@ -43,11 +43,26 @@ rate and never snaps.
 
 One `InstDef`: a name, an ink colour, four knob names, eight algorithm names, defaults, and five
 functions: `block` (once per 32 frames), `note`, `render` (one voice), an optional `post` (the
-mix), and `draw`. Adding a sixth instrument is one new file and one line in the table.
+mix), and `draw`. Adding an instrument is one new file, one line in the table and `NINST` plus one.
+
+## The sequencer
+
+Time is 96 ticks per quarter note. A bar is 384, 288, 480, 288 or 336 ticks for 4/4, 3/4, 5/4,
+6/8 and 7/8. The loop recorder stores timed events in RAM and is lost at power off. The step
+pattern is 64 steps of up to four notes, on a 1/8, 1/16 or 1/32 grid, and is saved with the
+rest of the state. `eng_seq_info` gives the picture what it needs to draw the progress line or
+the notches.
+
+## Controls as values
+
+`h1_control` reports what each encoder currently means (its name, range, value and value text)
+and `h1_control_set` sets it outright. The device never calls them. The simulator uses them to
+show each control as a labelled slider, while its nudge buttons, the mouse wheel and the number
+keys still send real encoder detents.
 
 ## RAM on the device
 
-The pool holds 336 KB. H1 asks for about 313 KB of it:
+The pool holds 336 KB. H1 asks for about 320 KB of it:
 
 | Buffer | KB |
 |---|---|
@@ -56,6 +71,7 @@ The pool holds 336 KB. H1 asks for about 313 KB of it:
 | Echo | 64 |
 | Reverb | 48 |
 | Two RGB565 bands for the panel | 19 |
+| LAVA's field and INK's scroll history | 7 |
 
 fm1-base keeps buffers of its own in the same pool, so this needs measuring on the first device
 build. The first things to shrink are the string lines and the reverb (16-bit samples halve

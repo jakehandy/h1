@@ -70,7 +70,7 @@ static void midi_in(void)
 /* ---- fm1-base's calls ----------------------------------------------------------------------- */
 void app_init(void)
 {
-    static uint8_t blob[512];
+    static uint8_t blob[1024];
     uint32_t size;
     int n;
     h1_init(44100);

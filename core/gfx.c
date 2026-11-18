@@ -313,6 +313,68 @@ void g_poly(const f32 *xy, int n, int closed, f32 w, f32 a)
         g_line(xy[(n - 1) * 2], xy[(n - 1) * 2 + 1], xy[0], xy[1], w, a);
 }
 
+void g_fill(const f32 *xy, int n, f32 a)
+{
+    f32 ex[8], ey[8], ec[8], minx = 1e9f, maxx = -1e9f, miny = 1e9f, maxy = -1e9f, area = 0.0f, sgn;
+    int i, x, y, x0, x1, y0, y1;
+    if (n < 3 || n > 8)
+        return;
+    set_level(a);
+    for (i = 0; i < n; i++) {
+        f32 ax = xy[2 * i] + gox, ay = xy[2 * i + 1] + goy;
+        int j = i + 1 < n ? i + 1 : 0;
+        f32 bx = xy[2 * j] + gox, by = xy[2 * j + 1] + goy, dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, inv;
+        area += ax * by - bx * ay;
+        minx = minf(minx, ax); maxx = maxf(maxx, ax);
+        miny = minf(miny, ay); maxy = maxf(maxy, ay);
+        inv = l2 > 1e-8f ? rsqrtf(l2) : 0.0f;
+        ex[i] = -dy * inv;                       /* the edge's normal, and its offset */
+        ey[i] = dx * inv;
+        ec[i] = -(ex[i] * ax + ey[i] * ay);
+    }
+    sgn = area >= 0.0f ? 1.0f : -1.0f;
+    x0 = imax(0, ifloor(minx - 1.0f));
+    x1 = imin(FB_W - 1, ifloor(maxx + 2.0f));
+    y0 = imax(0, ifloor(miny - 1.0f));
+    y1 = imin(FB_H - 1, ifloor(maxy + 2.0f));
+    for (y = y0; y <= y1; y++)
+        for (x = x0; x <= x1; x++) {
+            f32 d = 1e9f;
+            for (i = 0; i < n && d > -0.5f; i++) {
+                f32 e = sgn * (ex[i] * (f32)x + ey[i] * (f32)y + ec[i]);
+                if (e < d)
+                    d = e;
+            }
+            if (d > -0.5f)
+                put(x, y, cov_of(d + 0.5f));
+        }
+}
+
+void g_vspan(int x, f32 y0, f32 y1, f32 a)
+{
+    int ya, yb, y;
+    x += (int)gox;
+    y0 += goy; y1 += goy;
+    if ((unsigned)x >= FB_W || y1 <= y0)
+        return;
+    set_level(a);
+    y0 -= 0.5f; y1 -= 0.5f;                      /* to edges */
+    if (y0 < -0.5f) y0 = -0.5f;
+    if (y1 > (f32)FB_H - 0.5f) y1 = (f32)FB_H - 0.5f;
+    if (y1 <= y0)
+        return;
+    ya = ifloor(y0 + 0.5f);
+    yb = ifloor(y1 + 0.5f);
+    if (ya == yb) {
+        put(x, ya, cov_of(y1 - y0));
+        return;
+    }
+    put(x, ya, cov_of((f32)ya + 0.5f - y0));
+    for (y = ya + 1; y < yb; y++)
+        put(x, y, 256);
+    put(x, yb, cov_of(y1 - ((f32)yb - 0.5f)));
+}
+
 void g_arc(f32 cx, f32 cy, f32 r, f32 t0, f32 t1, f32 w, f32 a)
 {
     f32 span = absf(t1 - t0);

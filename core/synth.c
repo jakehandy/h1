@@ -1,4 +1,5 @@
-/* H1 - the engine: voices, envelopes, LFO, arpeggiator, loop recorder, and the block loop that
+/* H1 - the engine: voices, envelopes, LFO, arpeggiator, the sequencer (a loop recorder and a step
+ * sequencer, one at a time) and the block loop that
  * calls the current instrument. Runs in the audio interrupt; the main loop talks to it through a
  * small lock-free queue (eng_post) and reads back plain floats for the picture. */
 #include "internal.h"
@@ -13,7 +14,8 @@ Voice voices[NVOICE];
 f32 ks_line[NVOICE][2][KS_LEN] H1_POOL;
 uint32_t eng_rng = 0x2F6E2B1u;
 
-const InstDef *const insts[NINST] = {&inst_pip, &inst_urchin, &inst_twang, &inst_yawp, &inst_tide};
+const InstDef *const insts[NINST] = {&inst_pip, &inst_bonk, &inst_urchin, &inst_twang, &inst_lava,
+                                     &inst_knot, &inst_ink, &inst_tide, &inst_haunt};
 
 static f32 SR = 44100.0f, ISR = 1.0f / 44100.0f;
 static const InstDef *cur;
@@ -275,6 +277,34 @@ static void route(int note, int on)
     }
 }
 
+/* ---- the sequencer's clock: bars, meters, grids -------------------------------------------- */
+static const uint16_t METER_TICKS[5] = {384, 288, 480, 288, 336};      /* 4/4 3/4 5/4 6/8 7/8 */
+static const uint8_t GRID_TICKS[3] = {48, 24, 12};                     /* 1/8 1/16 1/32 */
+
+int seq_bar_ticks(void) { return METER_TICKS[st.seq[2] < 5 ? st.seq[2] : 0]; }
+int seq_grid_ticks(void) { return GRID_TICKS[st.seq[4] < 3 ? st.seq[4] : 1]; }
+
+int seq_accent(int tick)
+{
+    if (tick == 0)
+        return 2;
+    switch (st.seq[2]) {
+    case 3: return tick == 144;                              /* 6/8: two groups of three */
+    case 4: return tick == 96 || tick == 192;                /* 7/8: 2 + 2 + 3 */
+    default: return tick % 96 == 0;
+    }
+}
+
+static int step_per_bar(void) { return seq_bar_ticks() / seq_grid_ticks(); }
+static int step_bars(void)
+{
+    int bars = 1 << (st.seq[1] & 3), pb = step_per_bar();
+    while (bars > 1 && bars * pb > NSTEP)
+        bars >>= 1;
+    return bars;
+}
+static int step_count(void) { return imin(NSTEP, step_bars() * step_per_bar()); }
+
 /* ---- loop recorder -------------------------------------------------------------------- */
 typedef struct LEv { uint16_t tick; uint8_t note; uint8_t on; } LEv;   /* on: bit 0 = on, bit 7 = recorded this pass */
 #define NLEV 384
@@ -284,7 +314,8 @@ static volatile int loop_state = LOOP_EMPTY;
 static volatile f32 loop_pos, loop_len = 768.0f;
 static uint32_t loop_held[4];
 static f32 click_env, click_ph, click_f;
-static int click_beat = -1;
+static int click_at = -1;
+static int loop_fresh;                           /* the take about to start replaces the loop */
 
 static void loop_release(void)
 {
@@ -323,13 +354,13 @@ static void loop_tick(f32 dticks)
     b = a + dticks;
     if (s != LOOP_REC)
         loop_play_range(a, b);
-    if (st.loop[2]) {                            /* the click, on the beat */
-        int beat = (int)(b * (1.0f / 96.0f));
-        if (beat != click_beat || a == 0.0f) {
-            click_beat = beat;
+    if (s != LOOP_PLAY) {                        /* the click, while recording: on the meter's beats */
+        int bt = seq_bar_ticks(), tick = (int)b % bt, e = (int)b / 24;
+        if (e != click_at && seq_accent(tick - tick % 24)) {
             click_env = 1.0f;
-            click_f = (beat & 3) ? 1400.0f : 2400.0f;
+            click_f = tick < 24 ? 2400.0f : 1400.0f;
         }
+        click_at = e;
     }
     if (b >= loop_len) {
         b -= loop_len;
@@ -338,7 +369,7 @@ static void loop_tick(f32 dticks)
             lev[i].on &= 0x7F;
         if (s == LOOP_REC)
             loop_state = LOOP_PLAY;
-        click_beat = -1;
+        click_at = -1;
         loop_play_range(0.0f, b);
     }
     loop_pos = b;
@@ -347,7 +378,7 @@ static void loop_tick(f32 dticks)
 static void loop_record(int note, int on)
 {
     static const f32 Q[3] = {0.0f, 24.0f, 48.0f};
-    f32 t = loop_pos, q = Q[st.loop[1] < 3 ? st.loop[1] : 0];
+    f32 t = loop_pos, q = Q[st.seq[3] < 3 ? st.seq[3] : 0];
     if (nlev >= NLEV)
         return;
     if (on && q > 0.0f) {
@@ -368,17 +399,123 @@ static void loop_stop(void)
     loop_pos = 0.0f;
 }
 
+/* ---- step sequencer -------------------------------------------------------------------------
+ * A row of steps, st.steps, up to four notes each. Stopped with WRITE on, a key (or a chord)
+ * fills the step under the cursor and the cursor moves on when the hand lifts; running with
+ * WRITE on, what is played lands on the nearest step. */
+static volatile int step_playing, step_write, step_cursor, step_at;
+static f32 step_acc, step_off;
+static uint8_t step_snd[4];
+static int step_nsnd, step_gesture;
+
+static void step_release(void)
+{
+    int i;
+    for (i = 0; i < step_nsnd; i++)
+        route(step_snd[i], 0);
+    step_nsnd = 0;
+}
+
+static void step_fire(int i, f32 len)
+{
+    int j;
+    step_release();
+    for (j = 0; j < 4; j++)
+        if (st.steps[i][j]) {
+            int n = st.steps[i][j] - 1;
+            route(n, 1);
+            step_snd[step_nsnd++] = (uint8_t)n;
+        }
+    step_off = len;
+}
+
+static f32 step_len(int i)
+{
+    f32 g = (f32)seq_grid_ticks(), sw = st.seq[4] < 2 ? (f32)st.glo[1] * 0.01f * 0.34f : 0.0f;
+    return (i & 1) ? g * (1.0f - sw) : g * (1.0f + sw);
+}
+
+static void step_stop(void)
+{
+    step_release();
+    step_playing = 0;
+    step_at = 0;
+    step_acc = 0.0f;
+}
+
+static void step_tick(f32 dticks)
+{
+    int n = step_count();
+    if (step_nsnd) {
+        step_off -= dticks;
+        if (step_off <= 0.0f)
+            step_release();
+    }
+    if (step_cursor >= n)
+        step_cursor = 0;
+    if (!step_playing)
+        return;
+    step_acc += dticks;
+    if (step_at >= n || step_acc >= step_len(step_at)) {
+        int at = step_at;
+        step_acc = at >= n ? 0.0f : step_acc - step_len(at);
+        at = at + 1 >= n ? 0 : at + 1;
+        step_at = at;
+        step_fire(at, step_len(at) * 0.85f);
+    }
+}
+
+static void step_put(int i, int note)
+{
+    int j;
+    for (j = 0; j < 4; j++)
+        if (st.steps[i][j] == note + 1)
+            return;
+    for (j = 0; j < 3 && st.steps[i][j]; j++)
+        ;
+    st.steps[i][j] = (uint8_t)(note + 1);
+}
+
+static void step_clear(int i) { st.steps[i][0] = st.steps[i][1] = st.steps[i][2] = st.steps[i][3] = 0; }
+
+static void step_record(int note, int on)
+{
+    int n = step_count();
+    if (step_playing) {
+        if (on) {
+            int i = step_at;
+            if (step_acc > step_len(i) * 0.5f)
+                i = i + 1 >= n ? 0 : i + 1;
+            step_put(i, note);
+        }
+        return;
+    }
+    if (on) {
+        if (step_gesture++ == 0)
+            step_clear(step_cursor);
+        step_put(step_cursor, note);
+    } else if (step_gesture > 0 && --step_gesture == 0)
+        step_cursor = step_cursor + 1 >= n ? 0 : step_cursor + 1;
+}
+
 /* ---- live notes: the latch, then the recorder, then route -------------------------------- */
 static uint32_t latched[4];
 static int phys_down;
 
 static void eff_note(int note, int on)
 {
-    static const f32 BARS[4] = {1.0f, 2.0f, 4.0f, 8.0f};
+    if (st.seq[0] == SEQ_STEP) {
+        if (step_write)
+            step_record(note, on);
+        route(note, on);
+        return;
+    }
     if (on && loop_state == LOOP_ARMED) {
-        loop_len = BARS[st.loop[0] & 3] * 384.0f;
+        if (loop_fresh)
+            nlev = 0;
+        loop_len = (f32)((1 << (st.seq[1] & 3)) * seq_bar_ticks());
         loop_pos = 0.0f;
-        click_beat = -1;
+        click_at = -1;
         loop_state = LOOP_REC;
         arp_acc = 1e9f;
     }
@@ -419,6 +556,8 @@ static void panic(void)
     int i;
     unlatch();
     loop_release();
+    step_release();
+    step_gesture = 0;
     nheld = 0;
     arp_release();
     phys_down = 0;
@@ -447,12 +586,39 @@ static void handle(uint32_t e)
             voices_release_all();
         }
         break;
+    case EV_SEQ_MODE:
+        loop_stop();
+        step_stop();
+        step_write = 0;
+        step_gesture = 0;
+        break;
+    case EV_STEP_MOVE: {
+        int n = step_count(), c = ((step_cursor + a - 128) % n + n) % n;
+        step_cursor = c;
+        step_gesture = 0;
+        if (!step_playing)
+            step_fire(c, 30.0f);                 /* hear what is there */
+        break;
+    }
+    case EV_STEP_REST:
+        if (step_playing)
+            step_clear(step_at);
+        else {
+            int n = step_count();
+            step_clear(step_cursor);
+            step_cursor = step_cursor + 1 >= n ? 0 : step_cursor + 1;
+        }
+        break;
     case EV_REC:
+        if (st.seq[0] == SEQ_STEP) {
+            step_write = !step_write;
+            step_gesture = 0;
+            break;
+        }
         switch (loop_state) {
         case LOOP_EMPTY:
         case LOOP_IDLE:
-            if (!st.loop[3])
-                nlev = 0;
+            loop_fresh = 1;                      /* a new take; REC while it plays adds to it instead */
             loop_state = LOOP_ARMED;
             break;
         case LOOP_ARMED: loop_state = nlev ? LOOP_IDLE : LOOP_EMPTY; break;
@@ -462,6 +628,18 @@ static void handle(uint32_t e)
         }
         break;
     case EV_PLAY:
+        if (st.seq[0] == SEQ_STEP) {
+            if (step_playing)
+                step_stop();
+            else {
+                step_playing = 1;
+                step_at = 0;
+                step_acc = 0.0f;
+                arp_acc = 1e9f;
+                step_fire(0, step_len(0) * 0.85f);
+            }
+            break;
+        }
         switch (loop_state) {
         case LOOP_EMPTY: break;
         case LOOP_IDLE: {
@@ -469,7 +647,7 @@ static void handle(uint32_t e)
             for (i = 0; i < nlev; i++)
                 lev[i].on &= 0x7F;
             loop_pos = 0.0f;
-            click_beat = -1;
+            click_at = -1;
             arp_acc = 1e9f;
             loop_state = LOOP_PLAY;
             break;
@@ -479,6 +657,14 @@ static void handle(uint32_t e)
         }
         break;
     case EV_CLEAR:
+        if (st.seq[0] == SEQ_STEP) {
+            int i;
+            step_stop();
+            for (i = 0; i < NSTEP; i++)
+                step_clear(i);
+            step_cursor = 0;
+            break;
+        }
         loop_release();
         nlev = 0;
         loop_pos = 0.0f;
@@ -488,8 +674,19 @@ static void handle(uint32_t e)
     }
 }
 
-int eng_loop_state(void) { return loop_state; }
-f32 eng_loop_pos(void) { return loop_len > 0.0f ? loop_pos / loop_len : 0.0f; }
+void eng_seq_info(SeqInfo *si)
+{
+    si->mode = st.seq[0] == SEQ_STEP ? SEQ_STEP : SEQ_LOOP;
+    si->loop_state = loop_state;
+    si->loop_pos = loop_len > 0.0f ? loop_pos / loop_len : 0.0f;
+    si->playing = step_playing;
+    si->write = step_write;
+    si->per_bar = step_per_bar();
+    si->bars = step_bars();
+    si->nsteps = step_count();
+    si->cursor = imin(step_cursor, si->nsteps - 1);
+    si->at = imin(step_at, si->nsteps - 1);
+}
 
 /* ---- the block ------------------------------------------------------------------------- */
 static void switch_instrument(int i)
@@ -537,7 +734,8 @@ static void block(f32 *L, f32 *R)
     bpm = (f32)iclamp(st.glo[0], 40, 240);
     dticks = bpm * (96.0f / 60.0f) * dt;
     if (pending_i < 0) {
-        loop_tick(dticks);
+        if (st.seq[0] == SEQ_STEP) step_tick(dticks);
+        else loop_tick(dticks);
         arp_tick(ip, dticks);
     }
     beat_out = fractf(beat_out + dticks * (1.0f / 96.0f));
@@ -722,6 +920,7 @@ void eng_snapshot(Vis *vis)
         const Voice *v = &voices[i];
         vis->v[i].on = v->stage != 0;
         vis->v[i].gate = v->gate;
+        vis->v[i].note = v->note;
         vis->v[i].serial = v->serial;
         vis->v[i].pitch = v->pitch;
         vis->v[i].env = v->env;

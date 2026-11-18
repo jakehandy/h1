@@ -61,7 +61,7 @@
     white-space: nowrap;
   }
   .chip:hover { border-color: var(--dim); }
-  .chip:focus-visible, .btn:focus-visible, .knob:focus-visible, select:focus-visible, summary:focus-visible, .inst-name:focus-visible {
+  .chip:focus-visible, .btn:focus-visible, .nudge:focus-visible, .ctl input:focus-visible, select:focus-visible, summary:focus-visible, .inst-name:focus-visible {
     outline: 2px solid var(--ink);
     outline-offset: 2px;
   }
@@ -80,15 +80,15 @@
   }
   .top {
     display: grid;
-    grid-template-columns: minmax(150px, 1fr) auto minmax(300px, 1.5fr);
-    gap: 26px;
+    grid-template-columns: minmax(200px, 1fr) auto minmax(260px, 1.25fr);
+    gap: 24px;
     align-items: center;
   }
-  .left { display: grid; grid-template-columns: repeat(2, auto); gap: 16px 18px; justify-content: center; }
-  .left .oct { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: center; }
-  .right { display: flex; flex-direction: column; gap: 18px; align-items: center; }
-  .knobs { display: flex; gap: 16px; justify-content: center; }
-  .buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; width: 100%; max-width: 380px; }
+  .left { display: flex; flex-direction: column; gap: 8px; }
+  .left .oct { display: flex; gap: 10px; margin-top: 6px; }
+  .right { display: flex; flex-direction: column; gap: 16px; }
+  .knobs { display: flex; flex-direction: column; gap: 8px; }
+  .buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; width: 100%; }
 
   .glass {
     background: #000;
@@ -110,39 +110,78 @@
   }
   .glass.smooth canvas { image-rendering: auto; }
 
-  .knob {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    width: 64px;
-    cursor: ns-resize;
-    touch-action: none;
-    border-radius: 10px;
+  .ctl {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0 8px;
+    align-items: baseline;
+    width: 100%;
+    min-width: 0;
   }
-  .knob .cap {
-    width: 54px;
-    height: 54px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #3a3a40, #1d1d21 70%);
+  .ctl .nm {
+    font: 600 12px var(--mono);
+    letter-spacing: 0.06em;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ctl .nm small { font-size: 10px; font-weight: 400; color: var(--dim); margin-right: 8px; }
+  .ctl .val { font: 600 12px var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ctl .row { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; }
+  .ctl.off .nm b, .ctl.off .val { opacity: 0.45; }
+  .nudge {
+    appearance: none;
+    flex: none;
+    width: 30px;
+    height: 32px;
+    border-radius: 8px;
     border: 1px solid #000;
-    box-shadow: 0 6px 12px -4px #000, inset 0 1px 0 #55555c;
-    position: relative;
-    will-change: transform;
+    background: linear-gradient(180deg, #303035, #232327);
+    box-shadow: inset 0 1px 0 #47474e;
+    color: var(--dim);
+    font: 600 15px/1 var(--mono);
+    cursor: pointer;
+    touch-action: manipulation;
   }
-  .knob .cap::after {
-    content: "";
-    position: absolute;
-    left: 50%;
-    top: 5px;
-    width: 3px;
-    height: 15px;
-    margin-left: -1.5px;
-    border-radius: 2px;
-    background: var(--text);
+  .nudge:active { background: #1d1d20; color: var(--ink); }
+  .ctl input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1 1 0;
+    min-width: 0;
+    height: 36px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    --p: 50%;
   }
-  .knob.live .cap::after { background: var(--ink); }
-  .knob label, .btn span, .oct .btn span {
+  .ctl input[type=range]::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 5px;
+    border: 1px solid #000;
+    background: linear-gradient(90deg, var(--ink) var(--p), #0a0a0b var(--p));
+  }
+  .ctl input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 26px;
+    height: 26px;
+    margin-top: -9px;
+    border-radius: 50%;
+    border: 1px solid #000;
+    background: radial-gradient(circle at 35% 30%, #5a5a62, #26262b 70%);
+    box-shadow: 0 4px 8px -3px #000, inset 0 1px 0 #77777f;
+  }
+  .ctl input[type=range]::-moz-range-track { height: 8px; border-radius: 5px; border: 1px solid #000; background: #0a0a0b; }
+  .ctl input[type=range]::-moz-range-progress { height: 8px; border-radius: 5px; background: var(--ink); }
+  .ctl input[type=range]::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1px solid #000;
+    background: radial-gradient(circle at 35% 30%, #5a5a62, #26262b 70%);
+  }
+  .btn span, .oct .btn span {
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.06em;
@@ -150,15 +189,6 @@
     text-align: center;
     pointer-events: none;
     white-space: nowrap;
-  }
-  .knob .hint {
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--ink);
-    min-height: 14px;
-    margin-top: -4px;
-    letter-spacing: 0.04em;
-    transition: opacity 0.2s;
   }
   .btn {
     appearance: none;
@@ -186,7 +216,7 @@
   }
   .btn.lit i { background: var(--ink); box-shadow: 0 0 8px var(--ink); }
   .btn.down { transform: translateY(1px); background: #1d1d20; }
-  .oct .btn { width: 62px; }
+  .oct .btn { flex: 1 1 0; }
 
   /* ---- keys ---- */
   .keys {
@@ -342,16 +372,19 @@
 
   @media (max-width: 919px) {
     .device { padding: 14px 12px 12px; border-radius: 18px; }
-    .top { grid-template-columns: 1fr; gap: 16px; }
-    .glass { order: 0; padding: 16px; }
-    .right { order: 1; }
-    .left { order: 2; grid-template-columns: repeat(4, auto); gap: 12px 8px; }
-    .left .oct { grid-column: 1 / -1; }
-    .knobs { gap: 8px; }
-    .keys { height: 118px; margin-top: 16px; }
+    /* one column, in the order a thumb wants: screen, the four knobs, keys, buttons, the rest */
+    .device { display: flex; flex-direction: column; gap: 14px; }
+    .top, .right { display: contents; }
+    .glass { order: 0; padding: 16px; align-self: center; }
+    .knobs { order: 1; }
+    .keys { order: 2; height: 118px; margin-top: 0; }
+    .buttons { order: 3; }
+    .left { order: 4; }
     .wk { margin-right: 1px; }
     .wk em, .bk em { display: none; }
     .meter { margin-left: 0; }
+    .map { grid-template-columns: 1fr; gap: 2px; }
+    .map dd { margin-bottom: 9px; }
     .inst { grid-template-columns: 34px 1fr; }
     .inst .rows, .inst .why { grid-column: 1 / -1; }
   }
@@ -370,10 +403,10 @@
   <section class="device" aria-label="FM-1 panel">
     <div class="top">
       <div class="left">
-        <div class="knob" data-pot="1" tabindex="0" role="slider" aria-label="Master volume" id="master"><div class="cap"></div><label>MASTER</label></div>
-        <div class="knob" data-enc="0" tabindex="0" role="slider" aria-label="Select"><div class="cap"></div><label>SELECT</label></div>
-        <div class="knob" data-enc="2" tabindex="0" role="slider" aria-label="Presets"><div class="cap"></div><label>PRESETS</label></div>
-        <div class="knob" data-enc="1" tabindex="0" role="slider" aria-label="Algorithm"><div class="cap"></div><label>ALGORITHM</label></div>
+        <div class="ctl" data-enc="2" data-hw="PRESETS"></div>
+        <div class="ctl" data-enc="1" data-hw="ALGORITHM"></div>
+        <div class="ctl" data-enc="0" data-hw="SELECT"></div>
+        <div class="ctl" data-pot="1" data-hw="MASTER"></div>
         <div class="oct">
           <button class="btn" data-btn="12" type="button"><i></i><span>OCT −</span></button>
           <button class="btn" data-btn="13" type="button"><i></i><span>OCT +</span></button>
@@ -384,10 +417,10 @@
 
       <div class="right">
         <div class="knobs">
-          <div class="knob live" data-enc="3" tabindex="0" role="slider" aria-label="Knob 1"><div class="cap"></div><label>KNOB 1</label><span class="hint"></span></div>
-          <div class="knob live" data-enc="4" tabindex="0" role="slider" aria-label="Knob 2"><div class="cap"></div><label>KNOB 2</label><span class="hint"></span></div>
-          <div class="knob live" data-enc="5" tabindex="0" role="slider" aria-label="Knob 3"><div class="cap"></div><label>KNOB 3</label><span class="hint"></span></div>
-          <div class="knob live" data-enc="6" tabindex="0" role="slider" aria-label="Knob 4"><div class="cap"></div><label>KNOB 4</label><span class="hint"></span></div>
+          <div class="ctl" data-enc="3" data-hw="KNOB 1"></div>
+          <div class="ctl" data-enc="4" data-hw="KNOB 2"></div>
+          <div class="ctl" data-enc="5" data-hw="KNOB 3"></div>
+          <div class="ctl" data-enc="6" data-hw="KNOB 4"></div>
         </div>
         <div class="buttons" id="buttons"></div>
       </div>
@@ -420,18 +453,19 @@
         <dt>PRESETS</dt><dd>The instrument. It appears at once and its name flashes over it.</dd>
         <dt>ALGORITHM</dt><dd>Eight algorithms per instrument. Each changes the sound a lot and the picture with it.</dd>
         <dt>KNOB 1–4</dt><dd>On the home screen, always the instrument's four live modulations and nothing else. On a settings page, its four columns, left to right.</dd>
-        <dt>SELECT</dt><dd>Tempo on the home screen. On a settings page it steps to the next page.</dd>
-        <dt>ARP LFO ENV FX</dt><dd>Open that settings page. The same button again, or HOME, goes back.</dd>
+        <dt>SELECT</dt><dd>Tempo on the home screen. On a settings page it steps to the next page. While you write steps it moves the step cursor.</dd>
+        <dt>FX SEL ENV LFO GLO ARP SEQ</dt><dd>Open that settings page. The same button again, or HOME, goes back. The squares at the top right of every page are these buttons where they sit on the panel.</dd>
         <dt>SEL</dt><dd>KEYS page: root, scale, glide, hold. <small>Its light stays on while hold is on.</small></dd>
         <dt>GLO</dt><dd>GLOBAL page: tempo, swing, tune, brightness.</dd>
-        <dt>SEQ</dt><dd>LOOP page: bars, snap, click, overdub.</dd>
-        <dt>REC / PLAY</dt><dd>The loop recorder. REC arms it and it starts on your first note; REC again closes the loop, and again overdubs. PLAY stops and starts it. Hold REC to clear.</dd>
+        <dt>SEQ</dt><dd>The sequencer page: MODE (LOOP or STEP), BARS, METER, and SNAP for the loop or GRID for the steps. <small>Hold SEQ anywhere to swap LOOP and STEP without opening the page.</small></dd>
+        <dt>REC / PLAY, loop</dt><dd>REC arms a take and it starts on your first note, with a click on the beat while it records. REC again closes the loop; REC while it plays overdubs. PLAY stops and starts it. Hold REC to clear.</dd>
+        <dt>REC / PLAY, step</dt><dd>REC turns step-write on: play a key or a chord and it lands on the blinking step, then the cursor moves on. SELECT moves the cursor, EDIT leaves a rest. PLAY runs the pattern; with write still on, what you play lands on the step going by. Hold REC to clear. <small>The notches along the bottom of the screen are the steps: split into bars, taller on the beats, standing up where a step holds notes.</small></dd>
         <dt>EDIT</dt><dd>Pins the four knob names and values to the top of the home screen.</dd>
         <dt>HOME</dt><dd>Back to the instrument. On home it replays the name. Hold it to silence everything.</dd>
-        <dt>SAVE</dt><dd>Everything saves by itself per instrument. A tap saves now; holding it resets this instrument.</dd>
+        <dt>SAVE</dt><dd>Everything saves by itself per instrument, and the step pattern with it. A tap saves now; holding it resets this instrument.</dd>
         <dt>OCT − / +</dt><dd>Octave, two each way. Both together: back to the middle.</dd>
       </dl>
-      <p class="note">Here: drag a knob up and down or scroll over it. Play with the mouse, touch, or the computer keyboard:
+      <p class="note">Here every knob is a slider that always shows what it is tied to right now. The device has endless clicking encoders instead: the ‹ › buttons beside each slider, the mouse wheel over it and the number keys send single clicks exactly as the real knob would, speed-up included, so you can feel how it steps. Play with the mouse, touch, or the computer keyboard:
         <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd> <kbd>G</kbd> <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> <kbd>;</kbd> <kbd>'</kbd> are the white keys from F,
         <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> <kbd>[</kbd> the black ones.
         <kbd>Z</kbd> <kbd>X</kbd> octave, <kbd>←</kbd> <kbd>→</kbd> instrument, <kbd>↑</kbd> <kbd>↓</kbd> algorithm, <kbd>1</kbd>–<kbd>4</kbd> with <kbd>Shift</kbd> to turn a knob down, without to turn it up.</p>
@@ -439,7 +473,7 @@
   </details>
 
   <details open>
-    <summary>The five instruments</summary>
+    <summary>The instruments</summary>
     <div>
       <div class="insts" id="insts"></div>
       <p class="note">Click a name to jump to it. The swatch changes that instrument's ink; everything is drawn in shades of the one colour on the bezel's black.</p>
@@ -450,7 +484,7 @@
     <summary>What this simulator can and can't tell you</summary>
     <div>
       <p>The sound and the picture come from the same C code that goes on the FM-1, compiled for the browser, so what you approve here is what gets flashed. The screen meter is the real number of bytes each frame would send to the panel at the speed the fm1-base platform runs it.</p>
-      <p class="note">What it can't show: the device's own processor time for drawing, its speaker, and the feel of the encoders. Those need a first flash, and nothing gets flashed until you say so.</p>
+      <p class="note">What it can't show: the device's own processor time for drawing, its speaker, and the feel of the encoders in the hand. Those need a first flash, and nothing gets flashed until you say so.</p>
       <p><button class="chip" id="reset" type="button">reset everything to factory</button></p>
     </div>
   </details>
@@ -468,7 +502,7 @@
   var canvas = $("lcd"), ctx2d = canvas.getContext("2d"), image = ctx2d.createImageData(240, 240);
   var actx = null, node = null, gain = 0.8, soundOn = false, muted = false;
   var SR = 44100;
-  var STORE = "h1.state.v1";
+  var STORE = "h1.state.v2";
 
   function bytesOf(b64) {
     var s = atob(b64), n = s.length, u = new Uint8Array(n), i;
@@ -538,7 +572,7 @@
 
   /* ---- panel ---- */
   var BTN = ["FX", "SEL", "ENV", "LFO", "EDIT", "GLO", "HOME", "SAVE", "ARP", "SEQ", "PLAY", "REC"];
-  var btnEls = [], keyEls = [], hintEls = [], knobAngle = {};
+  var btnEls = [], keyEls = [], ctls = [];
 
   function press(el, b, down) {
     if (!X) return;
@@ -547,7 +581,7 @@
   }
   function bindButton(el, b) {
     btnEls[b] = el;
-    el.addEventListener("pointerdown", function (e) { e.preventDefault(); startAudio(); el.setPointerCapture(e.pointerId); press(el, b, 1); });
+    el.addEventListener("pointerdown", function (e) { e.preventDefault(); startAudio(); try { el.setPointerCapture(e.pointerId); } catch (x) { /* fine */ } press(el, b, 1); });
     var up = function () { if (el.classList.contains("down")) press(el, b, 0); };
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", up);
@@ -567,36 +601,73 @@
     Array.prototype.forEach.call(document.querySelectorAll(".oct .btn"), function (b) { bindButton(b, +b.dataset.btn); });
   }
 
-  function turn(el, d) {
+  /* ---- the knobs, as sliders. A slider sets its control outright (the core says what it is tied to
+   * and its range); the nudges, the wheel and the number keys turn the encoder a click at a time. ---- */
+  function paint(c) {
+    var r = c.range, lo = +r.min, hi = +r.max;
+    r.style.setProperty("--p", (hi > lo ? (+r.value - lo) / (hi - lo) * 100 : 0) + "%");
+  }
+  function turnEnc(enc, d) {
     if (!X || !d) return;
-    var cap = el.firstElementChild, id = el.dataset.enc !== undefined ? "e" + el.dataset.enc : "pot";
-    if (el.dataset.pot) {
-      gain = Math.max(0, Math.min(1, gain + d * 0.04));
-      cap.style.transform = "rotate(" + (-135 + 270 * gain) + "deg)";
+    startAudio();
+    X.w_encoder(enc, d);
+  }
+  function buildCtl(el) {
+    var enc = el.dataset.pot ? -1 : +el.dataset.enc, hw = el.dataset.hw, c = { el: el, enc: enc, key: "" };
+    el.innerHTML = '<span class="nm"><small>' + hw + '</small><b></b></span><span class="val"></span><div class="row">' +
+      (enc >= 0 ? '<button class="nudge" type="button" data-d="-1" aria-label="' + hw + ', one click down">‹</button>' : "") +
+      '<input type="range" min="0" max="100" step="1" value="0" aria-label="' + hw + '">' +
+      (enc >= 0 ? '<button class="nudge" type="button" data-d="1" aria-label="' + hw + ', one click up">›</button>' : "") + "</div>";
+    c.range = el.querySelector("input");
+    c.name = el.querySelector(".nm b");
+    c.val = el.querySelector(".val");
+    c.range.addEventListener("input", function () {
+      startAudio();
+      if (enc < 0) { gain = +c.range.value / 100; c.val.textContent = c.range.value; }
+      else if (X) X.w_ctl_set(enc, +c.range.value);
+      paint(c);
+    });
+    if (enc < 0) {
+      c.range.value = Math.round(gain * 100);
+      c.val.textContent = c.range.value;
+      c.name.textContent = "VOLUME";
+      paint(c);
       return;
     }
-    knobAngle[id] = (knobAngle[id] || 0) + d * 15;
-    cap.style.transform = "rotate(" + knobAngle[id] + "deg)";
-    X.w_encoder(+el.dataset.enc, d);
+    Array.prototype.forEach.call(el.querySelectorAll(".nudge"), function (b) {
+      var d = +b.dataset.d, timer = 0;
+      var stop = function () { clearTimeout(timer); clearInterval(timer); timer = 0; };
+      b.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        turnEnc(enc, d);
+        stop();
+        timer = setTimeout(function () { timer = setInterval(function () { turnEnc(enc, d); }, 100); }, 380);
+      });
+      b.addEventListener("pointerup", stop);
+      b.addEventListener("pointerleave", stop);
+      b.addEventListener("pointercancel", stop);
+      b.addEventListener("keydown", function (e) { if (e.key === " " || e.key === "Enter") { e.preventDefault(); turnEnc(enc, d); } });
+    });
+    el.addEventListener("wheel", function (e) { e.preventDefault(); turnEnc(enc, e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    ctls[enc] = c;
   }
-  function bindKnob(el) {
-    var acc = 0, last = null;
-    el.addEventListener("pointerdown", function (e) { e.preventDefault(); startAudio(); el.focus(); el.setPointerCapture(e.pointerId); last = { x: e.clientX, y: e.clientY }; acc = 0; });
-    el.addEventListener("pointermove", function (e) {
-      if (!last) return;
-      acc += (last.y - e.clientY) + (e.clientX - last.x);
-      last = { x: e.clientX, y: e.clientY };
-      var d = acc > 0 ? Math.floor(acc / 9) : Math.ceil(acc / 9);
-      if (d) { acc -= d * 9; turn(el, d); }
-    });
-    var end = function () { last = null; };
-    el.addEventListener("pointerup", end);
-    el.addEventListener("pointercancel", end);
-    el.addEventListener("wheel", function (e) { e.preventDefault(); startAudio(); turn(el, e.deltaY < 0 ? 1 : -1); }, { passive: false });
-    el.addEventListener("keydown", function (e) {
-      if (e.key === "ArrowUp" || e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); turn(el, 1); }
-      if (e.key === "ArrowDown" || e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); turn(el, -1); }
-    });
+  function syncCtls(force) {
+    var e, c, v, lo, hi, np, tp, key;
+    for (e = 0; e < 7; e++) {
+      c = ctls[e];
+      if (!c) continue;
+      v = X.w_ctl(e); lo = X.w_ctl_lo(e); hi = X.w_ctl_hi(e); np = X.w_ctl_name(e); tp = X.w_ctl_text(e);
+      key = v + "," + lo + "," + hi + "," + np + "," + tp;
+      if (key === c.key && !force) continue;
+      c.key = key;
+      if (+c.range.min !== lo) c.range.min = lo;
+      if (+c.range.max !== hi) c.range.max = hi;
+      if (+c.range.value !== v) c.range.value = v;
+      c.name.textContent = cstr(np) === c.el.dataset.hw ? "" : cstr(np);
+      c.val.textContent = cstr(tp);
+      c.range.setAttribute("aria-valuetext", cstr(np) + " " + cstr(tp));
+      paint(c);
+    }
   }
 
   var NOTE = ["F", "F#", "G", "G#", "A", "A#", "B", "C", "C#", "D", "D#", "E"];
@@ -631,7 +702,7 @@
       e.preventDefault();
       startAudio();
       if (k < 0) return;
-      host.setPointerCapture(e.pointerId);
+      try { host.setPointerCapture(e.pointerId); } catch (x) { /* fine */ }
       held[e.pointerId] = k;
       keyDown(k);
     });
@@ -654,7 +725,9 @@
     window.addEventListener("keydown", function (e) {
       var t = e.target;
       if (!X || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      var onSlider = t && t.tagName === "INPUT" && t.type === "range";
+      if (t && !onSlider && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA")) return;
+      if (onSlider && /^Arrow|^Home$|^End$|^Page/.test(e.code)) return;      /* a focused slider keeps its own keys */
       startAudio();
       if (KEYMAP[e.code] !== undefined) {
         e.preventDefault();
@@ -682,19 +755,18 @@
       Object.keys(held).forEach(function (id) { keyUp(held[id]); delete held[id]; });
     });
   }
-  function turnEnc(enc, d) {
-    var el = document.querySelector('.knob[data-enc="' + enc + '"]');
-    if (el) turn(el, d);
-  }
-
   /* ---- the instruments list ---- */
-  var WHY = [
-    "Chiptune. A fat-pixel creature who hops on every note, opens his mouth with the pulse width, sways with the vibrato and loses resolution as you crunch him.",
-    "FM. His outline is an FM waveform wrapped into a circle. Notes push spines out at their place on a clock of the twelve pitches, so chords make shapes.",
-    "Plucked strings. Eight real strings that move the way a plucked string moves, a felt mute, and a small plectrum who walks to wherever you pick.",
-    "Vowel choir. One head per note: one note is one giant head, a chord crowds the screen. The mouths make the vowel you dial.",
-    "Analog pad. A night sea under a moon. The keyboard lies across the water: each note lifts a swell at its own place and lights a star above it."
-  ];
+  var WHY = {
+    PIP: "Chiptune. A fat-pixel creature who hops on every note, opens his mouth with the pulse width, sways with the vibrato and loses resolution as you crunch him.",
+    BONK: "Drum kit. Twelve drums, one on every note of the octave, and a composition of twelve shapes: hit a drum and its shape fills, jumps and throws a ring. Each kit re-hangs the whole picture.",
+    URCHIN: "FM. His outline is an FM waveform wrapped into a circle. Notes push spines out at their place on a clock of the twelve pitches, so chords make shapes.",
+    TWANG: "Plucked strings. Eight real strings that move the way a plucked string moves, a felt mute, and a small plectrum who walks to wherever you pick.",
+    LAVA: "Wavefolder bass. A lava lamp drawn as a contour map: every note is a blob rising out of the pool, and each fold of the wave is another contour line.",
+    KNOT: "Bells and pure tones. A harmonograph: every note is a pendulum turning at its pitch, so an octave draws a three-leafed rose, a fifth five petals, and a chord a knot that slowly turns.",
+    INK: "Gliding lead. A scroll going by under a brush: each note is a stroke as high as its pitch and as wide as it is loud, so a slide is a curve and vibrato is a wave.",
+    TIDE: "Analog pad. A night sea under a moon. The keyboard lies across the water: each note lifts a swell at its own place and lights a star above it.",
+    HAUNT: "Spooky ambient. Drifting sines and a wind that whistles at the note. Every note calls up a hooded shape hung from threads that frays away when you let go. Something small is always out there."
+  };
   var instEls = [], algoEls = [], NI = 0;
   function buildInsts() {
     var host = $("insts"), i, k, row, html;
@@ -708,7 +780,7 @@
       for (k = 0; k < 4; k++) html += "<span>" + (k + 1) + " " + cstr(X.w_name(1, i, k)) + "</span>";
       html += '</div><div class="a">';
       for (k = 0; k < 8; k++) html += "<span>" + cstr(X.w_name(2, i, k)) + "</span>";
-      html += '</div></div><div class="why">' + (WHY[i] || "") + "</div>";
+      html += '</div></div><div class="why">' + (WHY[cstr(X.w_name(0, i, 0))] || "") + "</div>";
       row.innerHTML = html;
       host.appendChild(row);
       instEls[i] = row;
@@ -717,7 +789,7 @@
         r.querySelector(".inst-name").addEventListener("click", function () {
           startAudio();
           var d = idx - X.w_instrument();
-          if (d) X.w_encoder(2, d); else tapButton(6);
+          if (d) X.w_ctl_set(2, idx); else tapButton(6);
           window.scrollTo({ top: 0, behavior: "smooth" });
         });
         r.querySelector("input").addEventListener("input", function (e) {
@@ -730,7 +802,7 @@
   }
 
   /* ---- the frame loop ---- */
-  var shown = { inst: -1, algo: -1, page: -1, btn: -1, keys: -1 };
+  var shown = { inst: -1, algo: -1, page: -1, btn: -1, keys: -1, n: 0 };
   var busyUntil = 0, linkMs = 0, shownFrames = 0, fpsT = 0, fpsShown = 60, lastT = 0, saveSoon = false, pumped = 0;
   function sync() {
     var inst = X.w_instrument(), algo = X.w_algorithm(), page = X.w_page(), b = X.w_button_leds(), kl = X.w_key_leds(), i, on;
@@ -738,7 +810,6 @@
       var ink = hex(X.w_ink(inst));
       document.documentElement.style.setProperty("--ink", ink);
       for (i = 0; i < NI; i++) instEls[i].classList.toggle("cur", i === inst);
-      for (i = 0; i < 4; i++) hintEls[i].textContent = cstr(X.w_name(1, inst, i));
       shown.inst = inst;
       shown.algo = -1;
     }
@@ -747,10 +818,8 @@
         Array.prototype.forEach.call(algoEls[i], function (el, k) { el.classList.toggle("cur", i === inst && k === algo); });
       shown.algo = algo;
     }
-    if (page !== shown.page) {
-      for (i = 0; i < 4; i++) hintEls[i].style.opacity = page ? 0.25 : 1;
-      shown.page = page;
-    }
+    shown.page = page;
+    syncCtls(++shown.n % 12 === 0);
     if (b !== shown.btn) {
       for (i = 0; i < 14; i++) if (btnEls[i]) btnEls[i].classList.toggle("lit", !!(b >> i & 1));
       shown.btn = b;
@@ -809,9 +878,7 @@
     loadState();
     wireAudio();
     buildButtons();
-    Array.prototype.forEach.call(document.querySelectorAll(".knob"), bindKnob);
-    hintEls = Array.prototype.slice.call(document.querySelectorAll(".knob .hint"));
-    $("master").firstElementChild.style.transform = "rotate(" + (-135 + 270 * gain) + "deg)";
+    Array.prototype.forEach.call(document.querySelectorAll(".ctl"), buildCtl);
     buildKeys();
     bindComputerKeys();
     buildInsts();
@@ -827,6 +894,7 @@
       try { localStorage.removeItem(STORE); } catch (e) { /* fine */ }
       X.w_init(SR);
       shown.inst = shown.algo = shown.page = -1;
+      syncCtls(true);
       Array.prototype.forEach.call(document.querySelectorAll(".inst input"), function (el, i) { el.value = hex(X.w_ink(i)); });
     });
     label();
