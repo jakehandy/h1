@@ -8,5 +8,6 @@
   "editor": "https://jakehandy.com/h1",
   "cheat": "https://jakehandy.com/h1#hotkeys",
   "image": "docs/img/cozy.png",
-  "color": "#FFB08A"
+  "color": "#FFB08A",
+  "sounds": "CC0: Karoryfer Samples, Versilian VCSL, sfzinstruments and Discord SFZ GM Bank libraries, credited in docs/SAMPLES.md"
 }
