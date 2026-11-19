@@ -1,0 +1,53 @@
+# h1's Bluetooth MIDI in fm1-base's host simulator (a build with fm1.toml ble = true):
+#   ./build.sh --host, then app/build/host/h1_host tests/ble.txt app/build/host
+wait 1500
+# nobody on Bluetooth: the keys go to USB alone
+key 7 down
+wait 50
+key 7 up
+wait 100
+expect_out USB 90 3C 7F
+expect_no_out BLE 90 3C 7F
+out
+# a computer or a phone connects: the keys and the knobs go out over both
+ble connect
+wait 200
+key 7 down
+wait 50
+expect_out USB 90 3C 7F
+expect_out BLE 90 3C 7F
+key 7 up
+wait 100
+expect_out BLE 80 3C 00
+turn K1 3
+wait 100
+expect_out BLE B0 14 33
+out
+# a note from Bluetooth plays at its velocity, and is not sent back to either
+midi BLE 90 40 50
+wait 50
+peakreset
+wav ble_in.wav
+wait 300
+wavstop
+expect peak_db_min -50
+midi BLE 80 40 00
+wait 200
+expect_no_out BLE 90 40 50
+expect_no_out USB 90 40 50
+out
+# CC 20 from Bluetooth turns the first knob, as over USB
+midi BLE B0 14 10
+wait 100
+listen
+wait 50
+# it goes: nothing more over Bluetooth, USB as before
+ble disconnect
+wait 200
+key 7 down
+wait 50
+key 7 up
+wait 100
+expect_out USB 90 3C 7F
+expect_no_out BLE 90 3C 7F
+out

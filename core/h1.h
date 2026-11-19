@@ -30,6 +30,8 @@ void h1_midi(uint8_t status, uint8_t d1, uint8_t d2);   /* MIDI in: notes with t
  * turn, and CC 123 on a hush. Never what came in over MIDI. The notes are sent from inside h1_render, the
  * knobs from h1_encoder (the main loop): fn must be safe from both. NULL: nothing is sent (the default). */
 void h1_midi_out(void (*fn)(uint8_t status, uint8_t d1, uint8_t d2));
+/* the MIDI page's BT: 1 for Bluetooth on (the default), 0 off. A port with a radio follows it (app.c) */
+int h1_bluetooth(void);
 void h1_master(int level);                       /* where the volume knob stands, 0..1000, every frame. The
                                                   * core shows it (a ring while it turns) and, with EDIT held,
                                                   * takes it as the volume of the instrument in hand */

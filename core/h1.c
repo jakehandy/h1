@@ -218,3 +218,4 @@ int h1_loop_load(const void *blob, uint32_t size)
 int h1_loop_dirty(void) { return eng_loop_gen() != loop_saved_gen && eng_loop_quiet(); }
 void h1_loop_saved(void) { loop_saved_gen = loop_given_gen; }
 void h1_midi_out(void (*fn)(uint8_t status, uint8_t d1, uint8_t d2)) { eng_midi_fn = fn; }
+int h1_bluetooth(void) { return st.midi[3] == 0; }

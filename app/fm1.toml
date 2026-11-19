@@ -18,7 +18,16 @@ vendored = ["hw/"]
 # FM1B_CPU2=0 ./build.sh makes the build without the second core (CI keeps both).
 cpu2 = true
 cpu2_fallback = true
-ble = false
+# Bluetooth MIDI with a computer or a phone, on fm1-base's own stack (Optimist's, MPL-2.0: nothing of JieLi's
+# linked, about 41-46 KB of flash and 10 KB of RAM). In and out, as USB's. Without pairing: macOS and iOS connect
+# anyway. Its diagnostics left out for the room. ./build.sh --no-ble: h1-usb.fwsc, without it.
+ble = true
+ble_stack = "own"
+ble_diag = false
+# fm1-base's own fonts are only for its update, crash and safe-mode screens (h1 draws its own stroke font): kept as
+# their lit boxes and Huffman-coded, the same pixels in about a third of the flash, which Bluetooth needs
+font_trim = true
+font_pack = true
 # what a crash leaves behind is kept in flash (read with base/tools/fm1_remote.py crashes), with each stack's
 # room at the crash; the stacks are painted at every start, so their unused bytes can be read (app.c's PERF)
 crash_history = true

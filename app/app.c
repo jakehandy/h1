@@ -170,18 +170,28 @@ static int core2_run(void (*fn)(uint32_t), uint32_t arg) { return plat_cpu2_on()
 static int core2_wait(void) { return plat_cpu2_wait(); }
 #endif
 
-/* MIDI out, to the computer over USB (the FM-1's TRS jack is an input only): the core's notes from the render,
- * its knobs from the main loop; plat_midi_send takes both. With nobody listening there is no room, and nothing
- * is queued. A note-on or a knob goes only while there is room to spare, so the queue never fills with them
- * and leaves a note-off out (a note the computer would then hold for ever). */
+/* MIDI out, to the computer over USB and to a computer or phone over Bluetooth (the FM-1's TRS jack is an input
+ * only): the core's notes from the render, its knobs from the main loop; plat_midi_send takes both. Each link has
+ * its own queue and is asked on its own, so a slow Bluetooth link never holds back USB. With nobody listening on a
+ * link there is no room, and nothing is queued there. A note-on or a knob goes only while there is room to spare,
+ * so a queue never fills with them and leaves a note-off out (a note the computer would then hold for ever).
+ * In a build without Bluetooth, TO_BLE has no room and only USB is sent. */
 #define MIDI_SPARE 16u
+static void midi_send_to(uint32_t pkt, uint32_t to, int off)
+{
+    uint32_t room = plat_midi_out_room(to);
+    if (off ? room > 0u : room > MIDI_SPARE)
+        plat_midi_send(pkt, to);
+}
 static void midi_send(uint8_t status, uint8_t d1, uint8_t d2)
 {
     uint32_t pkt = (uint32_t)(status >> 4) | (uint32_t)status << 8 | (uint32_t)d1 << 16 | (uint32_t)d2 << 24;
-    uint32_t room = plat_midi_out_room(TO_USB);
-    int off = (status & 0xF0u) == 0x80u || (status == 0xB0u && d1 == 123u);
-    if (off ? room > 0u : room > MIDI_SPARE)
-        plat_midi_send(pkt, TO_USB);
+    /* a note-off, an all-notes-off and the clock's real-time messages (clock, Start, Stop: cable 0's CIN F, one
+     * byte) go whenever there is a slot: a follower that misses a clock drifts, and one that misses a Stop runs on */
+    int off = (status & 0xF0u) == 0x80u || ((status & 0xF0u) == 0xB0u && d1 == 123u) || status >= 0xF8u ||
+              status == 0xFAu || status == 0xFCu;
+    midi_send_to(pkt, TO_USB, off);
+    midi_send_to(pkt, TO_BLE, off);
 }
 
 void app_init(void)
@@ -234,10 +244,23 @@ void app_splash(void) { lcd_fill(0, 0, 240, 240, 0); }
 
 void app_ui_init(void) { lcd_fill(0, 0, 240, 240, 0); }
 
+/* the MIDI page's BT: the radio on or off as it is set (it starts at power-on as it was left: APP_BLE_AT_BOOT) */
+static void bluetooth_follow(void)
+{
+    static int was = -1;
+    int on = h1_bluetooth();
+    if (on != was) {
+        if (was >= 0)
+            plat_ble_enable(on);
+        was = on;
+    }
+}
+
 void app_frame(void)
 {
     uint32_t t0, t1, t2;
     input();
+    bluetooth_follow();
     h1_master((int)(plat_master() * 1000u / 4096u));        /* shown while it turns; the gain is app_render's */
     t0 = plat_ticks24();
     h1_frame(plat_ms());                                    /* (and most of the last frame goes out meanwhile) */

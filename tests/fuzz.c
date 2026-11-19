@@ -56,12 +56,15 @@ static void blit(int x, int y, int w, int h)
 
 extern uint32_t h1_fuzz_nan;                 /* core/synth.c, in this build: samples that were not numbers */
 
-/* MIDI out (h1_midi_out): every message a well-formed one on channel 1, notes and CC 20-23 and 123 only */
+/* MIDI out (h1_midi_out): every message a well-formed one, on any channel (the MIDI page's CHAN): notes, CC 20-23
+ * and 123 only, and the clock's real-time messages (clock, Start, Stop) with no data */
 static volatile uint32_t midi_outs;
 static void midi_out_check(uint8_t status, uint8_t d1, uint8_t d2)
 {
-    int ok = d1 < 128 && d2 < 128 && ((status == 0x90 && d2 >= 1) || (status == 0x80 && d2 == 0) ||
-             (status == 0xB0 && ((d1 >= 20 && d1 <= 23) || (d1 == 123 && d2 == 0))));
+    uint8_t type = status & 0xF0u;
+    int ok = d1 < 128 && d2 < 128 && ((type == 0x90 && d2 >= 1) || (type == 0x80 && d2 == 0) ||
+             (type == 0xB0 && ((d1 >= 20 && d1 <= 23) || (d1 == 123 && d2 == 0))) ||
+             ((status == 0xF8 || status == 0xFA || status == 0xFC) && d1 == 0 && d2 == 0));
     if (!ok)
         die("a MIDI message out that is not one", status, d1, d2, 0);
     midi_outs++;
@@ -131,7 +134,7 @@ static void frame(uint32_t ms, int with_sound)
         have_want = 0;
     }
     if (h1_instrument() < 0 || h1_instrument() >= h1_instrument_count() || h1_algorithm() < 0 || h1_algorithm() > 7 ||
-        h1_page() < 0 || h1_page() > 7)
+        h1_page() < 0 || h1_page() > 8)                                   /* (8: the MIDI page) */
         die("out of range", h1_instrument(), h1_algorithm(), h1_page(), 0);
     (void)h1_key_leds();
     (void)h1_button_leds();

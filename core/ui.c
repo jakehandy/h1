@@ -8,6 +8,7 @@
  *   FX SEL ENV LFO GLO ARP SEQ   open that page; again, or HOME, goes back
  *   SEQ held   swaps the sequencer between LOOP and STEP
  *   GLO held   the metronome: while recording, always, or off
+ *   HOME held  the MIDI page: the out channel, what goes out, MIDI clock, Bluetooth (held again: home)
  *              (a hold never does the tap as well: GLO, SEQ, HOME, SAVE, REC and EDIT tap on release)
  *   EDIT       pins the knob strip on the home screen (writing steps: a rest)
  *   EDIT held  with SELECT or MASTER: the volume of the instrument in hand, beside MASTER alone, which
@@ -17,10 +18,11 @@
  *   SAVE       saves now; held, resets the four knobs of the algorithm in hand; held on, this
  *              instrument (every algorithm's knobs and its pages); held four seconds, every
  *              instrument and the KEYS and GLOBAL pages (the sequencer and what it holds are left
- *              alone)
+ *              alone; the MIDI page too)
  *   PLAY REC   the sequencer. Loop: REC arms a take, or overdubs while it plays. Step: REC is
  *              step-write. REC held clears.
  *   OCT- OCT+  octave; both, back to the middle
+ *              both held: HUSH, every note let go, here and over MIDI
  */
 #include "internal.h"
 
@@ -39,6 +41,9 @@ static const char *const O_SEQMODE[] = {"LOOP", "STEP"};
 static const char *const O_METER[] = {"4/4", "3/4", "5/4", "6/8", "7/8"};
 static const char *const O_GRID[] = {"1/8", "1/16", "1/32"};
 static const char *const O_CLICK[] = {"CLICK REC", "CLICK ON", "CLICK OFF"};
+static const char *const O_SEND[] = {"ALL", "LIVE", "OFF"};          /* MS_* */
+static const char *const O_CLOCK[] = {"OFF", "ON", "+START"};        /* MC_* */
+static const char *const O_BT[] = {"ON", "OFF"};
 
 /* in the order of the buttons that open them, reading the panel's two rows left to right */
 const PageDef pages[NPAGE] = {
@@ -57,11 +62,14 @@ const PageDef pages[NPAGE] = {
              {"RANGE", PK_INT, 4, 1, 0, 0}, {"GATE", PK_PCT, 100, 5, 0, 0}}},
     {"SEQ", {{"MODE", PK_ENUM, 1, 0, 0, O_SEQMODE}, {"BARS", PK_ENUM, 3, 0, 0, O_BARS},
              {"METER", PK_ENUM, 4, 0, 0, O_METER}, {"SNAP", PK_ENUM, 2, 0, 0, O_QUANT}}},
+    /* HOME held: the out channel, what goes out, MIDI clock (and with +START, Start and Stop), Bluetooth */
+    {"MIDI", {{"CHAN", PK_INT, 15, 0, 1, 0}, {"SEND", PK_ENUM, 2, 0, 0, O_SEND},
+              {"CLOCK", PK_ENUM, 2, 0, 0, O_CLOCK}, {"BT", PK_ENUM, 1, 0, 0, O_BT}}},
 };
 static const ParamDef P_GRID = {"GRID", PK_ENUM, 2, 0, 0, O_GRID};
 
 /* where each page's button sits on the panel: column 0..5, row 0..1 */
-static const uint8_t PAGE_AT[NPAGE][2] = {{0, 1}, {0, 0}, {1, 0}, {2, 0}, {3, 0}, {5, 0}, {2, 1}, {3, 1}};
+static const uint8_t PAGE_AT[NPAGE][2] = {{0, 1}, {0, 0}, {1, 0}, {2, 0}, {3, 0}, {5, 0}, {2, 1}, {3, 1}, {0, 1}};
 
 const ParamDef *page_param(int pg, int i)
 {
@@ -81,6 +89,7 @@ uint8_t *page_value(int pg, int i)
     case PG_KEYS: return &st.keys[i];
     case PG_GLO: return &st.glo[i];
     case PG_SEQ: return &st.seq[i == 3 && st.seq[0] == SEQ_STEP ? 4 : i];
+    case PG_MIDI: return &st.midi[i];
     default: return &KNOBS_NOW(st.inst)[i];
     }
 }
@@ -125,6 +134,7 @@ static uint8_t key_down[H1_NKEYS];
 static uint32_t btn_held;
 static uint32_t btn_ms[H1_NBTN];
 static uint8_t btn_fired[H1_NBTN];
+static uint8_t hush_fired;                       /* OCT- + OCT+ held: HUSH, once a hold */
 
 static uint16_t pal[256];
 static uint8_t pal_key[5];
@@ -553,9 +563,20 @@ static void holds(void)
         mark_dirty();
     }
     if ((btn_held & (1u << H1_BTN_HOME)) && !btn_fired[H1_BTN_HOME] && now - btn_ms[H1_BTN_HOME] > 700u) {
-        btn_fired[H1_BTN_HOME] = 1;
-        eng_post(EV_PANIC, 0);
-        toast("HUSH", 0, 0, 0, -1);
+        btn_fired[H1_BTN_HOME] = 1;              /* HOME held: the MIDI page (held again there: home) */
+        open_page(PG_MIDI);
+    }
+    {   /* OCT- and OCT+ held together: HUSH, every note let go, here and out over MIDI (a tap of both is
+         * the middle octave, as before; holding them is that and then this) */
+        const uint32_t both = 1u << H1_BTN_OCTDN | 1u << H1_BTN_OCTUP;
+        uint32_t since = btn_ms[H1_BTN_OCTDN] > btn_ms[H1_BTN_OCTUP] ? btn_ms[H1_BTN_OCTDN] : btn_ms[H1_BTN_OCTUP];
+        if ((btn_held & both) != both)
+            hush_fired = 0;
+        else if (!hush_fired && now - since > 700u) {
+            hush_fired = 1;
+            eng_post(EV_PANIC, 0);
+            toast("HUSH", 0, 0, 0, -1);
+        }
     }
 }
 
@@ -595,8 +616,8 @@ static void set_knob(int i, int v)
     *k = (uint8_t)iclamp(v, 0, 100);
     knob_touch[i] = 0.0f;
     mark_dirty();
-    if (*k != was && eng_midi_fn)                /* out as CC 20-23, as they come in */
-        eng_midi_fn(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
+    if (*k != was)                               /* out as CC 20-23, as they come in */
+        eng_midi_cc((uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
 }
 
 static void set_param(int i, int v)
@@ -611,6 +632,8 @@ static void set_param(int i, int v)
         set_seq_mode(v);
         return;
     }
+    if (page == PG_MIDI && i <= 1)               /* the channel or what goes out: what went out is let go first */
+        eng_midi_all_off();
     *q = (uint8_t)v;
     if (page == PG_KEYS && i == 3 && !v)
         eng_post(EV_UNLATCH, 0);
@@ -987,6 +1010,8 @@ static void draw_page(void)
         put_s(put_s(buf, "HOLD GLO: "), O_CLICK[st.seq[5] < 3 ? st.seq[5] : 0]);
         g_text(13.0f, 43.0f, buf, 8.0f, 1.0f, 0.5f * intro, 0);
     }
+    if (page == PG_MIDI)                         /* where HUSH went when HOME's hold became this page */
+        g_text(13.0f, 43.0f, "HOLD OCT- AND OCT+: HUSH", 8.0f, 1.0f, 0.5f * intro, 0);
     if (page == PG_SEQ) {
         /* The sequencer's buttons do three things held or paired, more than the line holds: they go by
          * as a marquee, still for a moment when the page opens, then round and round. */

@@ -326,9 +326,11 @@ int main(void)
     go(100);                                     /* passes MIDI through would return it, for ever) */
     CHECK(mo_count(0xB0, 123) == 0, "a CC 123 that came in is not sent back");
     nmo = 0;
-    h1_button(H1_BTN_HOME, 1);                   /* HOME held: HUSH, and the computer is told */
+    h1_button(H1_BTN_OCTDN, 1);                  /* OCT- and OCT+ held: HUSH, and the computer is told (HOME */
+    h1_button(H1_BTN_OCTUP, 1);                  /* held is the MIDI page now) */
     go(1000);
-    h1_button(H1_BTN_HOME, 0);
+    h1_button(H1_BTN_OCTUP, 0);
+    h1_button(H1_BTN_OCTDN, 0);
     go(100);
     CHECK(mo_count(0xB0, 123) == 1, "HUSH sends CC 123");
     h1_midi_out(0);

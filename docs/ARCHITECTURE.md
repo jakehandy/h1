@@ -163,8 +163,14 @@ At the end of the mix a limiter with one control block of look-ahead keeps every
 (`lim_block`): six keys at once on most instruments came to two to five times that, and the soft clip
 that follows used to bend every peak. Under 0.7 it does nothing.
 
-MIDI out (`h1_midi_out`): what the keys, the arpeggiator and the sequencer play, on channel 1, and
-CC 20-23 as the home knobs turn. Never a note or a CC 123 that came in over MIDI, so a computer that
+MIDI out (`h1_midi_out`): what the keys, the arpeggiator and the sequencer play, on the MIDI page's channel
+(`st.midi[0]`), filtered by its SEND (`mout`'s source: `MO_LIVE` for the keys and the arpeggiator, `MO_SEQ` for the
+loop's and the steps' playback; `route` takes `R_SEQ` for the sequencer's notes that go through it), and
+CC 20-23 as the home knobs turn (`eng_midi_cc`). The page's CLOCK is `clock_tick` in the render, after the
+sequencers: a clock (0xF8) every 4 of the 96 ticks a quarter, from the same `dticks` as everything else and so
+from GLOBAL's tempo and not SWING, at a control block's resolution; with +START, Start (and its downbeat
+clock at once) and Stop as `transport_running` changes. The page's four bytes are `H1State.midi`, which were
+spare (`rsv`), so zero is what h1 did before the page. Never a note or a CC 123 that came in over MIDI, so a computer that
 echoes its input does not loop. A note-on or a knob goes out only while the USB queue has room to spare
 (app.c), so a full queue never leaves a note-off out. The device sends it over USB; the FM-1's TRS jack is an input only.
 

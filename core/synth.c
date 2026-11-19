@@ -106,14 +106,86 @@ void eng_post_note(int on, int note, int vel, int from_midi)
          ((uint32_t)iclamp(vel, 1, 127) << 16) | (from_midi ? 1u << 23 : 0u));
 }
 
-/* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on channel 1. Not what came
- * in over MIDI (a computer that sends a note in would hear it echoed back). -------------------------- */
+/* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on the MIDI page's channel. Not
+ * what came in over MIDI (a computer that sends a note in would hear it echoed back). SEND: ALL is all of it;
+ * LIVE what the hands play (the keys and the arpeggiator over them), not the loop's or the steps' playback;
+ * OFF nothing but the clock. A change of channel or SEND first sends CC 123 where notes went (eng_midi_all_off),
+ * so nothing is left hanging on the old channel. --------------------------------------------------------- */
 void (*eng_midi_fn)(uint8_t status, uint8_t d1, uint8_t d2);
-static void mout(int on, int note, int vel)
+enum { MO_LIVE, MO_SEQ };
+static uint8_t midi_ch(void) { return (uint8_t)(st.midi[0] & 15u); }
+static int midi_send_ok(int src)
+{
+    uint8_t s = st.midi[1];
+    return s == MS_ALL || (s == MS_LIVE && src == MO_LIVE);
+}
+static void mout(int on, int note, int vel, int src)
 {
     void (*fn)(uint8_t, uint8_t, uint8_t) = eng_midi_fn;
-    if (fn && note >= 0 && note < 128)
-        fn(on ? 0x90u : 0x80u, (uint8_t)note, (uint8_t)(on ? iclamp(vel, 1, 127) : 0));
+    if (fn && note >= 0 && note < 128 && midi_send_ok(src))
+        fn((uint8_t)((on ? 0x90u : 0x80u) | midi_ch()), (uint8_t)note, (uint8_t)(on ? iclamp(vel, 1, 127) : 0));
+}
+void eng_midi_cc(uint8_t cc, uint8_t v)
+{
+    void (*fn)(uint8_t, uint8_t, uint8_t) = eng_midi_fn;
+    if (fn && midi_send_ok(MO_LIVE))
+        fn((uint8_t)(0xB0u | midi_ch()), cc & 127u, v & 127u);
+}
+void eng_midi_all_off(void)
+{
+    void (*fn)(uint8_t, uint8_t, uint8_t) = eng_midi_fn;
+    if (fn)
+        fn((uint8_t)(0xB0u | midi_ch()), 123u, 0u);
+}
+
+/* ---- MIDI clock out (the MIDI page's CLOCK): 24 a quarter note at GLOBAL's tempo, straight (SWING moves notes,
+ * not the clock), from the control block (0.73 ms), so a pedal or a drum machine that only follows a clock has
+ * h1's tempo whether anything plays or not. With +START the transport too: Start when the loop or the steps
+ * start (a take, PLAY), a clock at once for the downbeat, Stop when they stop; the clock runs on between, as
+ * the spec has it. A real-time message goes ahead of the notes: the port sends it whenever its queue has a
+ * slot (app.c). In ticks of 96 a quarter: a clock every 4. ------------------------------------------------ */
+static f32 clk_ph;                               /* ticks since the last clock, 0..4 */
+static int clk_on, clk_run;                      /* the clock is going; the transport as last sent (+START) */
+static int transport_running(void);
+static void rt_out(uint8_t b)
+{
+    void (*fn)(uint8_t, uint8_t, uint8_t) = eng_midi_fn;
+    if (fn)
+        fn(b, 0u, 0u);
+}
+static void clock_tick(f32 dticks)
+{
+    int mode = st.midi[2] <= MC_START ? st.midi[2] : MC_OFF, run;
+    if (mode == MC_OFF || !eng_midi_fn) {
+        if (clk_run && eng_midi_fn)
+            rt_out(0xFC);                        /* (turned off while the transport ran: the follower stops too) */
+        clk_on = clk_run = 0;
+        return;
+    }
+    run = mode == MC_START && transport_running();
+    if (run && !clk_run) {                       /* Start, and its downbeat: the next clock is beat one */
+        rt_out(0xFA);
+        rt_out(0xF8);
+        clk_ph = 0.0f;
+        clk_on = clk_run = 1;
+        return;
+    }
+    if (!run && clk_run)
+        rt_out(0xFC);
+    clk_run = run;
+    if (!clk_on) {                               /* switched on: the first clock now */
+        clk_on = 1;
+        clk_ph = 0.0f;
+        rt_out(0xF8);
+        return;
+    }
+    clk_ph += dticks;
+    if (clk_ph >= 4.0f) {                        /* (at 240 BPM a clock is 14 control blocks: one at most a block) */
+        clk_ph -= 4.0f;
+        if (clk_ph >= 4.0f)
+            clk_ph = 0.0f;
+        rt_out(0xF8);
+    }
 }
 
 void dsp_init(void)
@@ -297,7 +369,7 @@ static void arp_release(void)
     int i;
     for (i = 0; i < arp_ncur; i++) {
         voice_off(arp_cur[i]);
-        mout(0, arp_cur[i], 0);
+        mout(0, arp_cur[i], 0, MO_LIVE);
         arp_take(arp_cur[i], 0, 0);
     }
     arp_ncur = 0;
@@ -306,7 +378,7 @@ static void arp_release(void)
 static void arp_play(int note, int vel)
 {
     voice_on(note, vel);
-    mout(1, note, vel);
+    mout(1, note, vel, MO_LIVE);
     arp_take(note, 1, vel);
     arp_cur[arp_ncur++] = (uint8_t)note;
 }
@@ -400,15 +472,17 @@ static void arp_tick(const InstParams *ip, f32 dticks)
 }
 
 /* a note after the latch and the loop: to the arpeggiator when it runs, else to a voice (and out, unless
- * it came in over MIDI) */
+ * it came in over MIDI). from_midi: 1 from MIDI, 0 from the keys, R_SEQ the loop's or the steps' playback
+ * (out only with SEND ALL; what the arpeggiator makes of it is the arpeggiator's, out as LIVE) */
+#define R_SEQ 2
 static void route(int note, int on, int vel, int from_midi)
 {
     int i;
     if (st.ip[cur_i].arp[0] == 0) {
         if (on) voice_on(note, vel);
         else voice_off(note);
-        if (!from_midi)
-            mout(on, note, vel);
+        if (from_midi != 1)
+            mout(on, note, vel, from_midi == R_SEQ ? MO_SEQ : MO_LIVE);
         return;
     }
     if (on) {
@@ -569,13 +643,13 @@ static void loop_release(void)
     int n;
     for (n = 0; n < 128; n++)
         if (loop_held[n >> 5] & (1u << (n & 31)))
-            route(n, 0, 0, 0);
+            route(n, 0, 0, R_SEQ);
     loop_held[0] = loop_held[1] = loop_held[2] = loop_held[3] = 0;
     for (n = 0; n < NVOICE; n++)                 /* and with LAYERS, the voices it started itself */
         if (voices[n].stage && voices[n].gate && voices[n].seq) {
             voices[n].gate = 0;
             voices[n].stage = 4;
-            mout(0, voices[n].note, 0);
+            mout(0, voices[n].note, 0, MO_SEQ);
         }
 }
 
@@ -590,17 +664,17 @@ static void loop_play_range(f32 a, f32 b)
                 int part = lev[i].part ? lev[i].part : live_part(), lay = layer_of(lev[i].lay, part);
                 if (lev[i].on & 1) {
                     voice_on_part(n, part, 1, lay, vel);
-                    mout(1, n, vel);
+                    mout(1, n, vel, MO_SEQ);
                 } else {
                     voice_off_part(n, part, lay);
-                    mout(0, n, 0);
+                    mout(0, n, 0, MO_SEQ);
                 }
             } else if (lev[i].on & 1) {
                 loop_held[n >> 5] |= 1u << (n & 31);
-                route(n, 1, vel, 0);
+                route(n, 1, vel, R_SEQ);
             } else if (loop_held[n >> 5] & (1u << (n & 31))) {
                 loop_held[n >> 5] &= ~(1u << (n & 31));
-                route(n, 0, 0, 0);
+                route(n, 0, 0, R_SEQ);
             }
         }
     }
@@ -698,9 +772,9 @@ static void step_release(void)
     for (i = 0; i < step_nsnd; i++) {
         if (step_sp[i]) {
             voice_off_part(step_snd[i], step_sp[i], step_sl[i]);
-            mout(0, step_snd[i], 0);
+            mout(0, step_snd[i], 0, MO_SEQ);
         } else
-            route(step_snd[i], 0, 0, 0);
+            route(step_snd[i], 0, 0, R_SEQ);
     }
     step_nsnd = 0;
 }
@@ -716,9 +790,9 @@ static void step_fire(int i, f32 len)
                 part = st.step_part[i][j] & 0x80 ? st.step_part[i][j] : live_part();
                 lay = layer_of(st.step_lay[i][j], part);
                 voice_on_part(n, part, 1, lay, vel);
-                mout(1, n, vel);
+                mout(1, n, vel, MO_SEQ);
             } else
-                route(n, 1, vel, 0);
+                route(n, 1, vel, R_SEQ);
             step_snd[step_nsnd] = (uint8_t)n;
             step_sl[step_nsnd] = (uint8_t)lay;
             step_sp[step_nsnd++] = (uint8_t)part;
@@ -772,6 +846,13 @@ static void step_tick(f32 dticks)
 }
 
 /* with nothing playing, the metronome keeps its own bar: while a take is armed, or always if it is ON */
+/* the loop or the steps going (for MIDI clock's Start and Stop): a take, playback, an overdub, the pattern */
+static int transport_running(void)
+{
+    int s = loop_state;
+    return st.seq[0] == SEQ_STEP ? step_playing != 0 : (s == LOOP_REC || s == LOOP_PLAY || s == LOOP_DUB);
+}
+
 static void free_tick(f32 dticks)
 {
     int cm = click_mode(), s = loop_state, run;
@@ -946,7 +1027,7 @@ static void panic(int from_midi)
     if (eng_midi_fn && !from_midi)               /* (all notes off, out too; not back to where a CC 123 came from:
                                                   * a computer that passes MIDI through would send it back, and
                                                   * the two would trade it for ever) */
-        eng_midi_fn(0xB0u, 123u, 0u);
+        eng_midi_all_off();
     unlatch();
     loop_release();
     step_release();
@@ -1445,6 +1526,7 @@ static void block(f32 *L, f32 *R)
         free_tick(dticks);
         arp_tick(ip, dticks);
     }
+    clock_tick(dticks);                          /* (after the sequencers: a Start lands with its first notes) */
 
     kg = st.keys[2] ? onepole_k(0.004f * exp2fx((f32)st.keys[2] * 0.08f), SR / (f32)CTRL) : 1.0f;
 
@@ -1794,6 +1876,8 @@ void eng_init(uint32_t sample_rate)
     loop_state = LOOP_EMPTY;
     nlev = 0;
     loop_pos = 0.0f;
+    clk_on = clk_run = 0;                       /* (the clock starts again with its first clock) */
+    clk_ph = 0.0f;
     loop_held[0] = loop_held[1] = loop_held[2] = loop_held[3] = 0;
     latched[0] = latched[1] = latched[2] = latched[3] = 0;
     latched_midi[0] = latched_midi[1] = latched_midi[2] = latched_midi[3] = 0;

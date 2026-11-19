@@ -125,8 +125,8 @@ That is what the backup is for.
 - **M-VAVE FM-1 only.** Not the SMK-37.
 - **Both flash chips.** h1 saves and updates on the original Puya P25Q80 (JEDEC ID `0x856014`)
   and on the UC25HQ80 (`0xB36014`) fitted to units sold since autumn 2026.
-- USB audio out and USB MIDI in and out. MIDI in over the TRS jack too. No MIDI out over TRS, and
-  no Bluetooth. See [USB audio and MIDI](#usb-audio-and-midi).
+- USB audio out, USB MIDI in and out, and Bluetooth MIDI in and out with a computer or a phone. MIDI
+  in over the TRS jack too. No MIDI out over TRS. See [USB audio and MIDI](#usb-audio-and-midi).
 - A screen reader ([fm1-reader](https://github.com/charlesvestal/fm1-reader)) hears the
   instrument, the algorithm, the page and each control's value as it changes. It can't describe
   the pictures.
@@ -148,12 +148,29 @@ same as the speaker. Nothing plays back through it: the FM-1 isn't a sound card 
 - CC 20 to 23 turn the four knobs. CC 123 stops every note.
 - The loop and the step sequencer record the velocity and play it back.
 
-**MIDI out,** over USB only, on channel 1:
+**Bluetooth MIDI.** The FM-1 advertises as a Bluetooth MIDI device from power-on. Connect to it from
+macOS (Audio MIDI Setup, Bluetooth), iOS (an app's Bluetooth MIDI page, such as GarageBand's) or
+anything else that speaks BLE-MIDI. Everything below works over it the same as over USB. One
+Bluetooth link at a time.
+
+**MIDI out,** over USB and Bluetooth, on channel 1 unless the MIDI page says otherwise:
 
 - The notes of the keys, the arpeggiator and the sequencer, so a DAW can record what you play as
   MIDI, or h1 can play another synth.
 - CC 20 to 23 as the four knobs turn.
 - A note that came in over MIDI isn't sent back out, so a DAW that echoes its input doesn't loop.
+
+**The MIDI page** (hold **HOME**):
+
+| Knob | Setting | Values | What it does |
+|---|---|---|---|
+| 1 | CHAN | 1–16 | The channel notes and knob CCs go out on. MIDI in stays on any channel |
+| 2 | SEND | ALL, LIVE, OFF | ALL: the keys, the arpeggiator, the loop and the steps (as before). LIVE: what your hands play (the keys and the arpeggiator), not the loop's or the steps' playback. OFF: no notes or knobs, only the clock |
+| 3 | CLOCK | OFF, ON, +START | ON: MIDI clock at GLOBAL's tempo, 24 a beat, all the time, whether anything plays or not, so a looper, a delay or a tremolo pedal follows h1's tempo. It ignores SWING. +START: also Start when the loop or the steps start (a take, PLAY) and Stop when they stop |
+| 4 | BT | ON, OFF | Bluetooth MIDI. Off, the radio is quiet. It stays as you left it through a power-off |
+
+Changing CHAN or SEND sends all-notes-off where notes went before, so nothing hangs on the old channel.
+The clock goes out over USB and Bluetooth, ahead of the notes when the queue is busy.
 
 ## Hotkeys
 
@@ -167,16 +184,17 @@ same as the speaker. Nothing plays back through it: the FM-1 isn't a sound card 
 | REC / PLAY | Loop: REC arms a take, again closes it, again overdubs. PLAY stops and starts it, and a stopped loop is kept through a power-off. Step: REC turns step-write on and off, PLAY runs the pattern |
 | EDIT | Pins the knob strip on the home screen. Writing steps: leaves a rest |
 | OCT − / + | Octave, two each way. Press both for the middle octave |
+| hold OCT − and OCT + | Silence everything (HUSH), and send all-notes-off over MIDI |
 | MASTER | Volume of everything. A ring in the middle of the screen shows it while it turns, marked GLOBAL |
 | hold EDIT, turn MASTER or SELECT | Volume of the instrument in hand. The same ring, marked INSTRUMENT. MASTER sets it to where the knob stands, SELECT moves it a step a click. Holding EDIT alone shows where it stands |
 | hold SEQ | Swap LOOP and STEP |
 | hold GLO | Metronome: CLICK REC, CLICK ON, CLICK OFF |
 | SEQ + REC | LAYERS on and off (on by default): with it on, each take keeps its own instrument, algorithm and settings |
 | hold REC | Clear the loop or the pattern. With LAYERS on: clear what was recorded on the instrument in hand, and keep holding to three seconds to clear everything |
-| hold HOME | Silence everything |
+| hold HOME | The MIDI page: channel, what goes out, MIDI clock, Bluetooth. Hold HOME again, or tap it, to go back |
 | hold SAVE | Reset the algorithm in hand: its four knobs go back to how they came (everything else saves by itself) |
 | hold SAVE for two seconds | Reset this instrument: every algorithm's knobs, and its FX, ENV, LFO and ARP pages |
-| hold SAVE for four seconds | Reset every instrument, and the KEYS and GLOBAL pages. The sequencer and what it holds are left alone |
+| hold SAVE for four seconds | Reset every instrument, and the KEYS and GLOBAL pages. The sequencer and what it holds, and the MIDI page, are left alone |
 
 A button with a hold does its tap when you let go, so holding SEQ or GLO never opens the page, and
 holding EDIT never pins the strip.
