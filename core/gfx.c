@@ -1,8 +1,15 @@
 /* h1 - graphics primitives. See gfx.h. */
 #include "gfx.h"
 
+/* the device's .pool RAM; the host simulator build has H1_DEVICE too, and macOS wants "segment,section" */
+#ifdef __APPLE__
+#define GFX_POOL __attribute__((section("__DATA,__pool")))
+#else
+#define GFX_POOL __attribute__((section(".pool")))
+#endif
+
 #ifdef H1_DEVICE
-uint32_t g_fb_w[FB_W * FB_H / 4] __attribute__((section(".pool")));
+uint32_t g_fb_w[FB_W * FB_H / 4] GFX_POOL;
 #else
 uint32_t g_fb_w[FB_W * FB_H / 4];
 #endif
@@ -462,7 +469,7 @@ void g_line(f32 x0, f32 y0, f32 x1, f32 y1, f32 w, f32 a) { line_seg(x0, y0, x1,
  * went over every pixel of a tangled cord five and six times, and that was most of its frame. */
 #define BED_WORDS ((FB_W + 31) / 32)
 #ifdef H1_DEVICE
-static uint32_t bed[FB_H * BED_WORDS] __attribute__((section(".pool")));
+static uint32_t bed[FB_H * BED_WORDS] GFX_POOL;
 #else
 static uint32_t bed[FB_H * BED_WORDS];
 #endif

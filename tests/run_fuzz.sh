@@ -13,5 +13,5 @@ $CC -std=c99 -O1 -g -fno-omit-frame-pointer -ffp-contract=off \
 n="${1:-4}"
 first="${2:-1}"
 export UBSAN_OPTIONS=print_stacktrace=1 ASAN_OPTIONS=detect_leaks=0
-seq "$first" "$((first + n - 1))" | xargs -P "$(nproc)" -I{} build/h1fuzz 1 {}
+seq "$first" "$((first + n - 1))" | xargs -P "$(nproc 2>/dev/null || sysctl -n hw.ncpu)" -I{} build/h1fuzz 1 {}
 echo "fuzz: $n seeds from $first, nothing found"
