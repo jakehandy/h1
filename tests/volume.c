@@ -245,6 +245,7 @@ int main(void)
     CHECK(h1_volume_ring() == 0, "EDIT tapped: no ring");
     tap(H1_BTN_EDIT);
     CHECK(st.hud == hud0, "EDIT tapped again: unpinned");
+    CHECK(h1_global_volume() == -1, "EDIT let go without MASTER turned: everything's volume follows the knob");
 
     /* ---- EDIT held: the ring, INSTRUMENT, for as long as it is held, and no tap ---- */
     h1_button(H1_BTN_EDIT, 1);
@@ -252,7 +253,12 @@ int main(void)
     CHECK(h1_volume_ring() == 2, "EDIT held: the ring, INSTRUMENT");
     go(3000);
     CHECK(h1_volume_ring() == 2, "EDIT still held: the ring stays");
-    CHECK(h1_global_volume() == -1, "MASTER never turned with EDIT: everything's volume follows the knob");
+    CHECK(h1_global_volume() == 704, "EDIT held, MASTER not turned: everything's volume where the knob stands");
+    i = vol();
+    h1_master(708);                              /* (#38: a turn too small to count yet) */
+    go(60);
+    CHECK(h1_global_volume() == 704 && vol() == i, "a nudge under EDIT moves neither everything's volume nor the instrument's");
+    h1_master(704);
     h1_master(300);                              /* MASTER turned meanwhile: it is the instrument's volume now */
     go(60);
     CHECK(h1_volume_ring() == 2, "EDIT held and MASTER turned: the ring is INSTRUMENT");

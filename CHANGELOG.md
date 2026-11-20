@@ -30,6 +30,11 @@ Identity `FM-1_481000300`. Fixes from the GitHub issues so far; PLINK and VIBE j
   later come up as new without another change of format.
   States and loops saved by 0.2.2 load as they were; an older firmware refuses a version 9 state and
   starts fresh.
+- EDIT + MASTER no longer turns everything else up (#38). While MASTER was the instrument's volume,
+  everything's volume was held at a level worked out on a different curve from the knob's, so the other
+  instruments and the loop's layers jumped louder (at half way, by about 12 dB) until the knob came back
+  through it. The held volume is now the knob's own, and it is held from the moment EDIT goes down, so a
+  nudge too small to count does not move it either.
 - ECHO no longer turns grainy the longer the unit is on (#31). Its read position was worked out in a
   float from a counter that never stops, so after about 13 minutes it lost the fraction of a sample,
   then whole samples, and only a restart brought it back. It now sounds the same after hours as at

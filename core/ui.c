@@ -108,6 +108,8 @@ static int vol_seen = -1;
  * knob, turned without EDIT, comes back through it and picks it up again. */
 static int glob_held = -1;
 static int master_raw = -1;                      /* the knob at the last reading */
+static int edit_at = -1;                         /* the knob when EDIT went down: everything stays there while EDIT is
+                                                  * held, so a turn too small to count yet does not move it (#38) */
 /* The volume ring: MASTER's (GLOBAL) or that of the instrument in hand (INSTRUMENT), whichever moved last. */
 enum { RING_GLOBAL = 1, RING_INST };
 static int ring_kind;
@@ -336,7 +338,13 @@ int h1_volume_ring(void) { return ring_t < RING_STAYS + 0.4f ? ring_kind : 0; }
 
 static void set_inst_vol(int v);
 
-int h1_global_volume(void) { return glob_held; }
+int h1_global_volume(void)
+{
+    int g = glob_held, e = edit_at;
+    if (g < 0 && e >= 0 && (btn_held & (1u << H1_BTN_EDIT)))
+        g = e;
+    return g;
+}
 
 /* MASTER, as the port reads it. The knob is an analog reading and never quite still: the ring comes up
  * for a real move (over 1.2 % of the travel) and then follows the small ones for a moment after.
@@ -359,7 +367,7 @@ void h1_master(int level)
     vol_t = 0.0f;
     if (btn_held & (1u << H1_BTN_EDIT)) {
         if (glob_held < 0)
-            glob_held = was;                     /* everything stays as loud as it was a moment ago */
+            glob_held = edit_at >= 0 ? edit_at : was;   /* everything stays as loud as it was when EDIT went down */
         btn_fired[H1_BTN_EDIT] = 1;
         set_inst_vol(((level - 15) * 100 + 485) / 970);
         return;
@@ -367,7 +375,8 @@ void h1_master(int level)
     if (glob_held >= 0) {
         int near = level > glob_held ? level - glob_held : glob_held - level;
         if (near <= 12 || (from <= glob_held && level >= glob_held) || (from >= glob_held && level <= glob_held))
-            glob_held = -1;                      /* the knob has come back through it: it follows again */
+            glob_held = -1;
+    edit_at = -1;                      /* the knob has come back through it: it follows again */
     }
     ring_show(RING_GLOBAL);
 }
@@ -430,6 +439,8 @@ void h1_button(int btn, int down)
         }
         return;
     }
+    if (btn == H1_BTN_EDIT)
+        edit_at = master_raw;
     btn_held |= 1u << btn;
     btn_ms[btn] = now;
     btn_fired[btn] = 0;

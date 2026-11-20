@@ -407,8 +407,12 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
     static float gain_now;
     int held = h1_global_volume();                          /* (the knob may be the instrument's just now) */
-    float m = held < 0 ? (float)master_q12 * (1.0f / 4096.0f) : (float)held * 0.001f;
-    float gain = m * m;                                     /* MASTER, as a square */
+    float p = (float)held * 0.001f;                         /* (held: a position, 0..1000, as h1_master was given it) */
+    /* master_q12 is already fm1-base's square of the knob's position (APP_GAIN), so a held position is squared
+     * here first: the held volume is then the one the knob gave a moment ago. (It was not, and holding made
+     * everything louder: #38.) */
+    float m = held < 0 ? (float)master_q12 * (1.0f / 4096.0f) : p * p;
+    float gain = m * m;                                     /* and the square of that: MASTER's curve on the FM-1 */
     uint32_t i, t0 = plat_ticks24(), us;
     h1_render(lr, n);                                       /* 24-bit, already limited */
     for (i = 0; i < n; i++) {
