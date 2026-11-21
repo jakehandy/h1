@@ -542,7 +542,7 @@ void h1_toast(const char *text)
     toast_pips = -1;
 }
 
-static void holds(void)
+static APART void holds(void)
 {
     /* hold EDIT: the ring comes up with the volume of the instrument in hand, for SELECT to turn. (A
      * turn of SELECT before that does the same at once: h1_encoder.) */
@@ -833,7 +833,7 @@ SMALL void h1_control_set(int enc, int v)
 }
 
 /* ---- palette ---------------------------------------------------------------------------- */
-static void build_palette(void)
+static APART void build_palette(void)
 {
     const uint8_t *ink = st.ink[st.inst];
     f32 bright = (f32)st.glo[3] * 0.01f;

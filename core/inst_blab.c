@@ -242,7 +242,7 @@ static const char RU[] =
 #define NTK 48
 static struct { char t[NTK][3]; uint8_t src[NTK]; int n; } W;   /* a word's phones, and the letter each began at */
 
-static int isvow(const char *t)
+static APART int isvow(const char *t)
 {
     static const char V[] = "IYIHEHAEAAAOUHUWAHERAXEYAYOYOWAW";
     int i;
@@ -254,7 +254,7 @@ static int isvow(const char *t)
 
 static int vowel_letter(char c) { return c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U'; }
 
-static void emit(const char *p, int n, int src)  /* phones (space split, to n chars) onto the word */
+static APART void emit(const char *p, int n, int src)  /* phones (space split, to n chars) onto the word */
 {
     int i = 0;
     while (i < n && p[i] && p[i] != '|') {
@@ -272,7 +272,7 @@ static void emit(const char *p, int n, int src)  /* phones (space split, to n ch
 }
 
 /* the entry of a table that w (n letters, from at) starts with: its length matched, and its phones */
-static int look(const char *tab, const char *w, int at, int n, int whole, const char **ph)
+static APART int look(const char *tab, const char *w, int at, int n, int whole, const char **ph)
 {
     const char *e = tab;
     while (*e) {
@@ -360,7 +360,7 @@ static APART void spell(const char *w, int n)    /* a word's letters to phones, 
     }
 }
 
-static int onset2(const char *a, const char *b)  /* two consonants that start a syllable well */
+static APART int onset2(const char *a, const char *b)  /* two consonants that start a syllable well */
 {
     int liq = (b[0] == 'R' || b[0] == 'L' || b[0] == 'W') && !b[1];
     if (a[0] == 'S' && !a[1])
@@ -1228,7 +1228,7 @@ static SMALL void blab_draw(const Vis *vis)
         /* WRITE: what is written, and the keys with their letters */
         char ch[2] = {0, 0};
         f32 size = 16.0f, w = g_text_w(st.words, size), x;
-        int wi = 0, key;
+        int wi = 0, key, pass;
         if (w > 224.0f) { size *= 224.0f / w; w = 224.0f; }
         if (st.words[0])
             g_text(120.0f, 116.0f, st.words, size, 2.0f, 1.0f, 1);
@@ -1236,30 +1236,25 @@ static SMALL void blab_draw(const Vis *vis)
             g_text(120.0f, 118.0f, "PLAY A KEY: A TO Z", 11.0f, 1.4f, 0.4f + 0.2f * sin_turns(t * 0.7f), 1);
         if (fractf(t * 1.6f) < 0.6f)
             g_rect(120.0f + 0.5f * w + 2.0f, 114.0f, 2.0f, size + 4.0f, 1.0f);
-        for (key = 0; key < 27; key++) {         /* white keys first, then the black over them */
-            int nn = (53 + key) % 12;
-            f32 lit = key == typed_key ? sat(1.0f - P.tflash * 2.5f) : 0.0f;
-            if (nn == 1 || nn == 3 || nn == 6 || nn == 8 || nn == 10) continue;
-            x = (f32)wi * 15.0f;
-            ch[0] = key == 26 ? '_' : (char)('A' + key);
-            g_rect(x + 1.0f, 150.0f, 13.0f, 88.0f, 0.12f + 0.85f * lit);
-            g_mode(lit > 0.5f ? G_PAINT : G_MAX);
-            g_text(x + 7.5f, 222.0f, ch, 10.0f, 1.5f, lit > 0.5f ? 0.0f : 1.0f, 1);
-            g_mode(G_MAX);
-            wi++;
-        }
-        for (key = 0, wi = 0; key < 27; key++) {
-            int nn = (53 + key) % 12;
-            f32 lit = key == typed_key ? sat(1.0f - P.tflash * 2.5f) : 0.0f;
-            if (!(nn == 1 || nn == 3 || nn == 6 || nn == 8 || nn == 10)) { wi++; continue; }
-            x = (f32)wi * 15.0f - 5.0f;
-            ch[0] = (char)('A' + key);
-            g_mode(G_PAINT);
-            g_rect(x - 1.0f, 150.0f, 12.0f, 52.0f, 0.0f);
-            g_mode(G_MAX);
-            g_rect(x, 150.0f, 10.0f, 51.0f, 0.3f + 0.65f * lit);
-            g_text(x + 5.0f, 188.0f, ch, 8.5f, 1.3f, 1.0f, 1);
-        }
+        for (pass = 0; pass < 2; pass++)         /* white keys first, then the black over them */
+            for (key = 0, wi = 0; key < 27; key++) {
+                int nn = (53 + key) % 12, blk = nn == 1 || nn == 3 || nn == 6 || nn == 8 || nn == 10;
+                f32 lit = key == typed_key ? sat(1.0f - P.tflash * 2.5f) : 0.0f, kw = blk ? 10.0f : 13.0f;
+                x = (f32)wi * 15.0f + (blk ? -5.0f : 1.0f);
+                wi += !blk;
+                if (blk != pass)
+                    continue;
+                ch[0] = key == 26 ? '_' : (char)('A' + key);
+                if (blk) {
+                    g_mode(G_PAINT);
+                    g_rect(x - 1.0f, 150.0f, 12.0f, 52.0f, 0.0f);
+                }
+                g_mode(G_MAX);
+                g_rect(x, 150.0f, kw, blk ? 51.0f : 88.0f, (blk ? 0.3f : 0.12f) + 0.85f * lit);
+                g_mode(lit > 0.5f ? G_PAINT : G_MAX);
+                g_text(x + kw * 0.5f, blk ? 188.0f : 222.0f, ch, blk ? 8.5f : 10.0f, 1.4f, lit > 0.5f ? 0.0f : 1.0f, 1);
+            }
+        g_mode(G_MAX);
         return;
     }
 
@@ -1303,7 +1298,7 @@ static SMALL void blab_draw(const Vis *vis)
     }
 }
 
-void blab_type(int key)
+APART void blab_type(int key)
 {
     int n = 0;
     while (n < NWORDS - 1 && st.words[n]) n++;

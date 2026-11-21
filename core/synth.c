@@ -553,7 +553,7 @@ static void layers_close(void)
 
 /* the layer what is played now goes into: the open one of the part in hand, or a new one. 0 when there is no
  * room (then the notes follow their part as it is, as they did before layers had settings) */
-static int layer_take(void)
+static APART int layer_take(void)
 {
     uint8_t used[NLAYER];
     int part = live_part(), i, j;
@@ -765,7 +765,7 @@ static void loop_tick(f32 dticks)
     loop_pos = b;
 }
 
-static void loop_record(int note, int on, int vel)
+static APART void loop_record(int note, int on, int vel)
 {
     static const f32 Q[3] = {0.0f, 24.0f, 48.0f};
     f32 t = loop_pos, q = Q[st.seq[3] < 3 ? st.seq[3] : 0];
