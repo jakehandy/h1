@@ -2,6 +2,7 @@
  * passes the panel in, and the sound, the lights and the changed parts of the picture out. */
 #include "app.h"
 #include "../core/h1.h"
+#include "keys.h"
 
 /* ---- the screen: 8-bit ink through the palette into RGB565, band by band -------------------- */
 #define BAND_ROWS 20                     /* the core never asks for a taller rectangle */
@@ -99,6 +100,33 @@ static uint8_t pf_ask;
 /* ---- the panel ------------------------------------------------------------------------------ */
 static uint32_t keys_was, btn_was;
 
+/* ---- how hard a held key is leant on ---------------------------------------------------------
+ * fm1-base senses the twenty keys F3 to C5 (lib/touch.h): a velocity for each press and, while it is held, a
+ * pressure. Its pressure is counted from where the key rests, and after the first 250 ms that rest creeps
+ * after the reading, so a lean held still fades back to nothing in about six seconds: a gesture, not a place.
+ * h1 has a reading of its own beside it, from the same readings (sn_key[]: the unity build puts them in reach)
+ * and on the same scale (P_DEAD, P_SPAN), in which the rest settles for P_SETTLE and is then left where it is:
+ * it moves only when the key is eased off, and then up to the new reading. Whether a pad held still drifts by
+ * itself, and so which of the two plays better, only a device can tell; nobody has measured it. CC 118 from
+ * the computer picks: 64 and up h1's (LEAN HELD, the default), below fm1-base's (LEAN FADES). */
+static uint8_t lean_held = 1;
+static Lean lean[NKEYS];
+static KeyMend mend;
+
+static void lean_update(uint32_t now)            /* (keys.h: the same however often it is asked) */
+{
+    uint32_t i;
+    for (i = 0; i < NKEYS; i++) {
+        if (!touch_is_on() || !touch_sensed(i) || !touch_down(i))
+            lean_off(&lean[i]);
+        else                                     /* (h1 never calls touch_sens: P_SPAN at 0) */
+            lean_step(&lean[i], (float)(sn_key[i].d > SN_DBASE + 1u ? sn_key[i].d - SN_DBASE : 1u), now, P_DEAD,
+                      P_SPAN(0.5f), P_SETTLE);
+    }
+}
+
+static int key_lean(uint32_t k) { return lean_held ? lean[k].val : touch_pressure(k); }
+
 /* MIDI in (USB and the TRS jack): read here, in the main loop, because the core's event queue has one
  * writer and the panel is it */
 static void midi_in(void)
@@ -108,7 +136,10 @@ static void midi_in(void)
     while (plat_midi_in(&pkt, &port)) {
         if (((pkt >> 8) & 0xF0u) == 0xB0u && ((pkt >> 16) & 0xFFu) == 119u)
             pf_ask = 1;                                     /* (see "how long things take") */
-        else
+        else if (((pkt >> 8) & 0xF0u) == 0xB0u && ((pkt >> 16) & 0xFFu) == 118u) {
+            lean_held = (uint8_t)((pkt >> 24 & 0x7Fu) >= 64u);   /* (see "how hard a held key is leant on") */
+            h1_toast(lean_held ? "LEAN HELD" : "LEAN FADES");
+        } else
             h1_midi((uint8_t)(pkt >> 8), (uint8_t)(pkt >> 16), (uint8_t)(pkt >> 24));
     }
 }
@@ -149,10 +180,23 @@ static void usb_news(void)
 
 static void input(void)
 {
-    uint32_t keys = plat_keys(), btn = plat_buttons(), k;
-    for (k = 0; k < NKEYS; k++)
+    uint32_t keys, btn = plat_buttons(), k, now = plat_ms(), sensed = 0, seated = 0;
+    touch_poll();                                           /* the sensed keys' presses, their velocities, fm1-base's pressure */
+    lean_update(now);                                       /* and h1's */
+    for (k = 0; k < NKEYS; k++) {
+        sensed |= (uint32_t)touch_sensed(k) << k;
+        seated |= (uint32_t)touch_down(k) << k;
+    }
+    keys = keys_mend(&mend, touch_keys(), sensed, plat_keys(), seated, now);   /* (keys.h: a release that was lost) */
+    for (k = 0; k < NKEYS; k++) {
+        /* A key pressed from the computer (fm1_remote.py, plat_remote_keys) has no reading of its own: full, as
+         * h1_key has it, not the last velocity that key was played at by hand. */
+        int remote = (int)(plat_remote_keys() >> k & 1u) && !touch_down(k);
         if ((keys ^ keys_was) >> k & 1u)
-            h1_key((int)k, (int)(keys >> k & 1u));
+            h1_key_vel((int)k, (int)(keys >> k & 1u), keys >> k & 1u ? (remote ? 127 : (int)touch_vel(k)) : 0);
+        if (keys >> k & 1u)
+            h1_key_pressure((int)k, key_lean(k));         /* (every frame: what goes out over MIDI catches up) */
+    }
     for (k = 0; k < NB; k++)
         if ((btn ^ btn_was) >> k & 1u)
             h1_button((int)k, (int)(btn >> k & 1u));       /* B_* and H1_BTN_* are the same order */
@@ -229,9 +273,11 @@ static void midi_send(uint8_t status, uint8_t d1, uint8_t d2)
 {
     uint32_t pkt = (uint32_t)(status >> 4) | (uint32_t)status << 8 | (uint32_t)d1 << 16 | (uint32_t)d2 << 24;
     uint32_t room = plat_midi_out_room(TO_USB);
-    int off = (status & 0xF0u) == 0x80u || (status == 0xB0u && d1 == 123u);
+    int off = (status & 0xF0u) == 0x80u || (status == 0xB0u && d1 == 123u) || ((status & 0xF0u) == 0xA0u && !d2);
     if (off ? room > 0u : room > MIDI_SPARE)
         plat_midi_send(pkt, TO_USB);
+    else
+        h1_midi_out_dropped(status, d1, d2);             /* (the core sends a lean again that did not go) */
 }
 
 /* ---- the loop, kept through a power-off while it plays (#39) -----------------------------------
@@ -518,7 +564,11 @@ void app_panic(void) { h1_midi(0xB0, 123, 0); }
 
 void app_splash(void) { lcd_fill(0, 0, 240, 240, 0); }
 
-void app_ui_init(void) { lcd_fill(0, 0, 240, 240, 0); }
+void app_ui_init(void)
+{
+    touch_on(1);                                            /* the keys' readings: velocity and pressure */
+    lcd_fill(0, 0, 240, 240, 0);
+}
 
 void app_frame(void)
 {

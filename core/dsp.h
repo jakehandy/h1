@@ -76,3 +76,26 @@ static inline f32 onepole_k(f32 seconds, f32 rate)
     if (seconds <= 0.0f) return 1.0f;
     return 1.0f - exp2fx(-1.442695f / (seconds * rate));
 }
+
+/* Pressure as a push. A lean is a gesture: eased, it is gone, and a pad under a steady finger may drift back
+ * by itself. A push makes of it a place that stays. *at is where it has been pushed to, 0..1, and is the
+ * instrument's to keep (in a voice's s[], or its own), started wherever it likes at the note.
+ *   push_hold   goes up with the lean and stays when the lean eases: the hardest lean so far.
+ *   push_move   moves on while the lean is past dead (0..1), the faster the harder: speed is how far a full
+ *               lean takes it in a second, dt the seconds since the last call. Easing leaves it where it is.
+ * Neither comes back down by itself: set *at again to take it back. Both return it. */
+static inline f32 push_hold(f32 *at, f32 lean)
+{
+    if (lean > *at)
+        *at = lean < 1.0f ? lean : 1.0f;
+    return *at;
+}
+static inline f32 push_move(f32 *at, f32 lean, f32 dead, f32 speed, f32 dt)
+{
+    f32 over = lean - dead;
+    if (over > 0.0f && dead < 1.0f) {
+        f32 x = *at + over / (1.0f - dead) * speed * dt;
+        *at = x < 1.0f ? x : 1.0f;
+    }
+    return *at;
+}

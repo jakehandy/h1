@@ -2,7 +2,7 @@
 # h1's tests: the device app in fm1-base's host simulator (the platform simulated, the same app.c
 # and core as the firmware), then LAYERS (tests/layers.c), each algorithm's own knobs, the resets and a
 # step's eight notes (tests/knobs.c), each instrument's own volume and the volume ring (tests/volume.c),
-# what 0.2.2 adds (tests/v022.c), ECHO after a long time on (tests/echo.c), two cores (tests/cores.c), what is hidden in the pictures (tests/eggs.c) and the line drawing (tests/lines.c) on the core alone. The release workflow
+# what 0.2.2 adds (tests/v022.c), ECHO after a long time on (tests/echo.c), two cores (tests/cores.c), velocity and pressure (tests/touch.c, tests/keys.c), what is hidden in the pictures (tests/eggs.c) and the line drawing (tests/lines.c) on the core alone. The release workflow
 # runs this after the build; a failure stops it.
 set -eu
 cd "$(dirname "$0")/.."
@@ -11,6 +11,8 @@ out=app/build/host
 "$out/h1_host" tests/basic.txt "$out"
 # USB host: OCT- and OCT+ held, a keyboard plugged in and played, unplugged, and back to the computer
 "$out/h1_host" tests/usbhost.txt "$out"
+# the keys' velocity and pressure, through fm1-base's sensing
+"$out/h1_host" tests/touch.txt "$out"
 # the loop kept through a power-off while it plays (#39), and one cut off in the middle of its save
 "$out/h1_host" tests/looppower.txt "$out"
 # (that build has the second core, as the firmware does: the simulator runs its jobs at once, in order)
@@ -57,6 +59,16 @@ else
     diff build/cores1.txt build/cores2.txt | head -20
     exit 1
 fi
+# velocity and pressure: from the keys and MIDI to the notes and the picture, a lean onto a knob, the push,
+# poly aftertouch out, the route saved and older states read
+"${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
+    core/*.c tests/touch.c -o build/h1touch -lm
+ASAN_OPTIONS=detect_leaks=0 build/h1touch
+# the device's own reading of the keys (app/keys.h): the held lean at any cadence, a lost release let go
+# (-fno-sanitize=shift: fm1-base's fm_exp2f shifts a negative exponent, as the FM-1 does without minding)
+"${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize=shift -fno-sanitize-recover=all -w \
+    tests/keys.c -o build/h1keys
+ASAN_OPTIONS=detect_leaks=0 build/h1keys
 # what is hidden in the pictures, and the noise each makes
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/*.c tests/eggs.c -o build/h1eggs -lm

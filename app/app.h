@@ -12,6 +12,7 @@ void app_splash(void);                   /* instrument comes up */
 #define APP_CANVAS_PX (240u * 48u)
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms */
 #define APP_USB_HOST_NAME                /* the USB host reads a keyboard's name, to show when it connects */
+#define APP_TOUCH                        /* velocity and pressure from the keys (fm1-base's lib/touch.h) */
 
 /* the store: the saved state, the platform's panel calibration and the loop recorder's loop. Each object is an
  * A/B pair of 4 KiB sectors, written by the platform's storage (CRC, a torn write leaves the copy before in

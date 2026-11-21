@@ -20,16 +20,27 @@ enum { H1_ENC_SELECT, H1_ENC_ALGO, H1_ENC_PRESET, H1_ENC_K1, H1_ENC_K2, H1_ENC_K
 void h1_init(uint32_t sample_rate);
 
 /* main loop side */
-void h1_key(int key, int down);                  /* key 0 = F3 */
+void h1_key(int key, int down);                  /* key 0 = F3, at full velocity */
+void h1_key_vel(int key, int down, int vel);     /* the same, at a velocity, 1..127 (ignored on the way up) */
+void h1_key_pressure(int key, int p);            /* a held key leant on, 0..127: call it every frame while the key
+                                                  * is down (out over MIDI as poly aftertouch, rate-limited) */
+/* Pressure onto one of an instrument's four home knobs, as the LFO goes onto its target: target 1..4 (0 none),
+ * depth -100..100, how far a full lean turns it. Saved with the instrument. */
+void h1_pressure_route(int inst, int target, int depth);
+int h1_pressure_routed(int inst, int *depth);    /* the target, and where depth is not null the depth */
 void h1_button(int btn, int down);
 void h1_encoder(int enc, int detents);           /* + = clockwise */
-void h1_midi(uint8_t status, uint8_t d1, uint8_t d2);   /* MIDI in: notes with their velocity, CC 20-23 the
-                                                  * knobs, CC 123 all notes off */
+void h1_midi(uint8_t status, uint8_t d1, uint8_t d2);   /* MIDI in: notes with their velocity, poly aftertouch
+                                                  * and channel pressure, CC 20-23 the knobs, CC 123 all notes off */
 /* MIDI out: fn is called with each message h1 sends, on channel 1: the notes played on the keys, by the
- * arpeggiator and by the sequencer (note-on with its velocity, note-off), CC 20-23 as the four home knobs
- * turn, and CC 123 on a hush. Never what came in over MIDI. The notes are sent from inside h1_render, the
- * knobs from h1_encoder (the main loop): fn must be safe from both. NULL: nothing is sent (the default). */
+ * arpeggiator and by the sequencer (note-on with its velocity, note-off), poly aftertouch as the keys are leant
+ * on, CC 20-23 as the four home knobs turn, and CC 123 on a hush. Never what came in over MIDI. The notes are
+ * sent from inside h1_render, the knobs and the aftertouch from the main loop: fn must be safe from both. NULL:
+ * nothing is sent (the default). */
 void h1_midi_out(void (*fn)(uint8_t status, uint8_t d1, uint8_t d2));
+/* The port calls this from fn when it could not send what it was handed (a full queue). The core sends a key's
+ * poly aftertouch again, its 0 at a key's release too, until one goes; anything else it does not resend. */
+void h1_midi_out_dropped(uint8_t status, uint8_t d1, uint8_t d2);
 void h1_master(int level);                       /* where the volume knob stands, 0..1000, every frame. The
                                                   * core shows it (a ring while it turns) and, with EDIT held,
                                                   * takes it as the volume of the instrument in hand */

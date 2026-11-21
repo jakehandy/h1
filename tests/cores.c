@@ -142,6 +142,27 @@ static void play(void)
     h1_key(10, 0);
     run(200);
     mark();
+    /* leant on: every instrument, its lean on a knob, a chord at velocities, the lean swept in and out (a
+     * render that reads Voice.press must read what the engine set before either core began) */
+    for (inst = 0; inst < ni; inst++) {
+        h1_control_set(H1_ENC_PRESET, inst);
+        h1_pressure_route(inst, 1 + inst % 4, inst & 1 ? -80 : 80);
+        run(6);
+        for (k = 0; k < 3; k++)
+            h1_key_vel(pat[k + inst % 8], 1, 30 + 40 * k);
+        for (f = 0; f < 40; f++) {
+            for (k = 0; k < 3; k++)
+                h1_key_pressure(pat[k + inst % 8], (f < 20 ? f : 40 - f) * 6 + k * 10);
+            if (f == 10)
+                h1_midi(0xD0, 90, 0);
+            run(2);
+        }
+        h1_midi(0xD0, 0, 0);
+        for (k = 0; k < 3; k++)
+            h1_key(pat[k + inst % 8], 0);
+        run(30);
+        mark();
+    }
 }
 
 int main(int argc, char **argv)

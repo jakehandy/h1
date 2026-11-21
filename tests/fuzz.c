@@ -59,15 +59,18 @@ static void blit(int x, int y, int w, int h)
 
 extern uint32_t h1_fuzz_nan;                 /* core/synth.c, in this build: samples that were not numbers */
 
-/* MIDI out (h1_midi_out): every message a well-formed one on channel 1, notes and CC 20-23 and 123 only */
+/* MIDI out (h1_midi_out): every message a well-formed one on channel 1, notes, poly aftertouch and CC 20-23 and
+ * 123 only */
 static volatile uint32_t midi_outs;
 static void midi_out_check(uint8_t status, uint8_t d1, uint8_t d2)
 {
-    int ok = d1 < 128 && d2 < 128 && ((status == 0x90 && d2 >= 1) || (status == 0x80 && d2 == 0) ||
+    int ok = d1 < 128 && d2 < 128 && ((status == 0x90 && d2 >= 1) || (status == 0x80 && d2 == 0) || status == 0xA0 ||
              (status == 0xB0 && ((d1 >= 20 && d1 <= 23) || (d1 == 123 && d2 == 0))));
     if (!ok)
         die("a MIDI message out that is not one", status, d1, d2, 0);
     midi_outs++;
+    if (status == 0xA0 && midi_outs % 3u == 0)  /* (a full queue now and then: the aftertouch tried again) */
+        h1_midi_out_dropped(status, d1, d2);
 }
 
 static uint32_t now_ms;
@@ -154,10 +157,18 @@ static void frame(uint32_t ms, int with_sound)
 static void poke(int with_sound)
 {
     int r = below(100), k;
-    if (r < 30) {                                            /* a key */
+    if (r < 30) {                                            /* a key, at any velocity, and leant on */
         k = below(H1_NKEYS);
         keys_down ^= 1u << k;
-        h1_key(k, (int)(keys_down >> k & 1u));
+        if (below(2))
+            h1_key(k, (int)(keys_down >> k & 1u));
+        else
+            h1_key_vel(k, (int)(keys_down >> k & 1u), below(300) - 100);
+        for (k = 0; k < H1_NKEYS; k++)
+            if (below(4) == 0)
+                h1_key_pressure(below(4) ? k : below(64) - 16, below(4) ? below(128) : below(600) - 200);
+        if (below(20) == 0)
+            h1_pressure_route(below(24) - 4, below(8) - 1, below(400) - 200);
     } else if (r < 50) {                                     /* a button down or up */
         k = below(H1_NBTN);
         btns_down ^= 1u << k;
@@ -172,7 +183,7 @@ static void poke(int with_sound)
         if (below(10) == 0)
             h1_midi(0xB0, 123, 0);
         else
-            h1_midi(below(3) ? 0x90 : 0x80, (uint8_t)nt, (uint8_t)below(128));
+            h1_midi(below(4) ? (below(3) ? 0x90 : 0x80) : (below(2) ? 0xA0 : 0xD0), (uint8_t)nt, (uint8_t)below(128));
     } else if (r < 90) {                                     /* a slider in the simulator, any value */
         h1_control_set(below(H1_NENC), below(600) - 200);
     } else if (r < 93) {                                     /* everything let go */

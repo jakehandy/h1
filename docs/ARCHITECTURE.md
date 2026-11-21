@@ -172,17 +172,37 @@ its voices are a group of their own in `block()` (key: the part, with the layer 
 own LFO, envelope rates and knobs (`lay_set`). A layer no note is on any more is let go when a new one
 needs its slot. Notes with no layer (recorded before 0.2.2) follow their part as it stands, as before.
 
-Every note carries a velocity: the panel's keys 127, MIDI what it was sent with. A voice turns it into
-a gain (about 20 dB from 1 to 127) and a two-pole low-pass in the mix (open at 127), so the keys sound
-as they did to the bit. A voice taken over while it still sounds starts the new note from where the
+Every note carries a velocity: on the FM-1 the one its key landed at (fm1-base's sensing, `APP_TOUCH`), MIDI
+what it was sent with, and 127 wherever none is given: `h1_key`, a key pressed from the computer over
+`fm1_remote.py`, and in the simulator a key with no `key_vel` (the computer's keys, a RemoteFM1 FM-1 that sends
+none). A key clicked in the simulator has the velocity of where it was clicked. A voice turns it into a gain
+(about 20 dB from 1 to 127) and a two-pole low-pass in the mix (open at 127), so a note at 127 sounds as the
+keys always did, to the bit. A voice taken over while it still sounds starts the new note from where the
 old one was and lets the difference go over a millisecond or two (`Voice.tail`).
+
+A note played by hand can also be leant on. The main loop writes a byte a note (`eng_pressure`: the panel's
+keys through `h1_key_pressure`, MIDI poly aftertouch) and one for the channel (MIDI channel pressure), and
+`press_block` reads them once a control block, before any instrument's `block` or `render`: each voice a hand
+started (`Voice.hand`) eases to its note's pressure, or the channel's if that is harder, over about 20 ms, and
+`Voice.press` is what its `render` and the picture (`VVoice.press`) see. `Blk.press` and `Vis.press` are the
+hardest lean among the instrument's notes. The loop's notes, the steps' and the arpeggiator's are under no
+finger and have none. An instrument may route the lean onto one of its home knobs as the LFO goes onto its
+target (`InstParams.mix[IP_PTO]` the knob, `mix[IP_PDEPTH]` how far a full lean turns it, -100..100: two bytes
+that were spare, so an older state leans on nothing); none does by default. `push_hold` and `push_move`
+(`dsp.h`) turn a lean into a value that stays where it was pushed. On the device the lean is h1's own reading
+of the keys (`app/keys.h`, which holds a steady lean, at rates in time so a slow frame reads it the same) or
+fm1-base's (which fades back over seconds): CC 118 picks. A key's aftertouch goes back to 0 as it is let go,
+and one the port could not send (`h1_midi_out_dropped`) is sent again. `app/keys.h` also lets go of a sensed key
+whose release was lost from fm1-base's event queue, once the plain key scan has seen it open for 50 ms.
+`tests/touch.c` and `tests/keys.c` hold all of it.
 
 At the end of the mix a limiter with one control block of look-ahead keeps everything under 0.7
 (`lim_block`): six keys at once on most instruments came to two to five times that, and the soft clip
 that follows used to bend every peak. Under 0.7 it does nothing.
 
-MIDI out (`h1_midi_out`): what the keys, the arpeggiator and the sequencer play, on channel 1, and
-CC 20-23 as the home knobs turn. Never a note or a CC 123 that came in over MIDI, so a computer that
+MIDI out (`h1_midi_out`): what the keys, the arpeggiator and the sequencer play, on channel 1, poly
+aftertouch as the keys are leant on (not with the arpeggiator on; a move of two or more at most every 20 ms a
+key, a move of one once it has stood 200 ms), and CC 20-23 as the home knobs turn. Never a note or a CC 123 that came in over MIDI, so a computer that
 echoes its input does not loop. A note-on or a knob goes out only while the USB queue has room to spare
 (app.c), so a full queue never leaves a note-off out. The device sends it over USB; the FM-1's TRS jack is an input only.
 
