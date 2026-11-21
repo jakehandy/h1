@@ -238,7 +238,7 @@ static void layout(int algo, int i, f32 *e)
     }
 }
 
-static void twang_draw(const Vis *vis)
+static SMALL void twang_draw(const Vis *vis)          /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, damp = vis->k[0], pick = lerpf(0.5f, 0.13f, vis->k[1]), tone = vis->k[2], buzz = vis->k[3];
     f32 mute = damp * 0.34f, wline = lerpf(4.2f, 1.5f, tone), c[5], norm = 0.0f, mt = smooth01(vis->algo_t);
