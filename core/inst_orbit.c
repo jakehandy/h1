@@ -467,7 +467,7 @@ static APART void saucer(const Vis *vis)
         g_disc(x - 14.0f + 7.0f * (f32)i, y + 1.0f - (i == 0 || i == 4 ? 1.5f : 0.0f), 1.5f, ((int)(t * 9.0f) + i) % 5 ? 0.3f : 1.0f);
 }
 
-static void orbit_draw(const Vis *vis)
+static SMALL void orbit_draw(const Vis *vis)          /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, t = vis->t, sweep = vis->k[0], spin = vis->k[1], shimmer = vis->k[2], grav = vis->k[3], mt = smooth01(vis->algo_t);
     f32 lev = sat(vis->level * 3.0f), speed, rate = 0.02f + 0.5f * spin * spin, S, cr, sr;
