@@ -176,7 +176,7 @@ int main(void)
     tap(H1_BTN_PLAY);
     go(100);
     p = (const uint8_t *)h1_state(&size);
-    CHECK(size == sizeof(H1State), "the state is version 9's size");
+    CHECK(size == sizeof(H1State), "the state is one H1State");
     memcpy(blob, p, size);
     p = (const uint8_t *)h1_loop(&lsize);
     memcpy(lblob, p, lsize);
@@ -195,15 +195,15 @@ int main(void)
     go(1500);
     CHECK(energy > 0.0, "and it plays");
 
-    /* ---- a version 9 state saved with fewer instruments than there are now (as a 0.3.0 state will be once
-     * instruments are added): the ones after come up as new, the rest as saved ---- */
+    /* ---- a state saved with fewer instruments than there are now: the ones after come up as new, the rest as
+     * saved ---- */
     h1_init(44100);
     to(12, 2);
     h1_midi(0xB0, 21, 0);
     to(11, 4);
     h1_midi(0xB0, 22, 0);
     memcpy(blob, h1_state(&size), size);
-    CHECK(size == 3344u, "a version 9 state is 3344 bytes");
+    CHECK(size == 3596u, "a version 10 state is 3596 bytes");
     ((H1State *)(void *)blob)->ninst = 12;
     h1_init(44100);
     CHECK(h1_state_load(blob, size) == 0, "it loads");
@@ -211,6 +211,43 @@ int main(void)
     CHECK(st.ip[12].algo == 0 && !memcmp(st.knob[12][2], insts[12]->def.knob0, 4) && st.ink[12][0] == insts[12]->ink[0],
           "the thirteenth as new");
     CHECK(st.ninst == NINST, "and the count is now's");
+
+    /* ---- 0.3.0's state, version 9: room for sixteen instruments. Everything comes back, BLAB as new ---- */
+    {
+        static H1V9 v9;
+        const H1State *s10;
+        int a;
+        h1_init(44100);
+        to(15, 3);
+        h1_midi(0xB0, 23, 0);
+        go(100);
+        to(2, 5);
+        h1_midi(0xB0, 21, 127);
+        go(100);
+        s10 = (const H1State *)h1_state(&size);
+        memset(&v9, 0, sizeof v9);
+        memcpy(&v9, s10, offsetof(H1V9, ip));
+        memcpy(v9.ip, s10->ip, sizeof v9.ip);
+        memcpy(v9.ink, s10->ink, sizeof v9.ink);
+        v9.ninst = 16;
+        memcpy(v9.steps, s10->steps, sizeof v9.steps);
+        memcpy(v9.step_part, s10->step_part, sizeof v9.step_part);
+        memcpy(v9.knob, s10->knob, sizeof v9.knob);
+        memcpy(v9.step_vel, s10->step_vel, sizeof v9.step_vel);
+        memcpy(v9.step_lay, s10->step_lay, sizeof v9.step_lay);
+        memcpy(v9.layer, s10->layer, sizeof v9.layer);
+        v9.version = 9;
+        st.knob[16][0][0] = 99;                  /* (BLAB's, as a 0.3.0 unit never had it: it must come up as new) */
+        h1_init(44100);
+        CHECK(sizeof v9 == 3344u && h1_state_load(&v9, sizeof v9) == 0, "a version 9 state loads");
+        CHECK(h1_instrument() == 2 && h1_algorithm() == 5 && st.knob[2][5][1] == 100 && st.knob[15][3][3] == 0,
+              "its instruments as saved");
+        for (a = 0; a < NALGO; a++)
+            if (memcmp(st.knob[16][a], insts[16]->def.knob0, 4))
+                break;
+        CHECK(a == NALGO && st.ip[16].algo == 0 && st.ink[16][1] == insts[16]->ink[1], "BLAB as new");
+        CHECK(st.version == H1_VERSION && st.ninst == NINST, "and it is version 10 now");
+    }
 
     printf("ninth: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

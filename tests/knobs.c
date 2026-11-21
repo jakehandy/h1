@@ -372,10 +372,11 @@ int main(void)
 
     /* ---- a recorded part keeps its own algorithm's knobs ---- */
     /* What the instrument keeps for all its voices goes with the algorithm in hand, as its effects do:
-     * the post stage of COZY, KOI, PIP and BARD, and ORBIT's spin. There a loop hears both. */
+     * the post stage of COZY, KOI, PIP, BARD and BLAB (its one mouth), and ORBIT's spin. There a loop hears both. */
     for (i = 0; i < NINST; i++) {
         const char *nm = insts[i]->name;
-        int shared = !strcmp(nm, "COZY") || !strcmp(nm, "KOI") || !strcmp(nm, "PIP") || !strcmp(nm, "BARD") || !strcmp(nm, "ORBIT");
+        int shared = !strcmp(nm, "COZY") || !strcmp(nm, "KOI") || !strcmp(nm, "PIP") || !strcmp(nm, "BARD") || !strcmp(nm, "ORBIT") ||
+                     !strcmp(nm, "BLAB");
         h1 = loop_heard(i, K1, K2);
         h2 = loop_heard(i, K1, K3);
         h3 = loop_heard(i, K3, K2);
