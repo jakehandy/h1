@@ -882,17 +882,6 @@ static struct {
 } P;
 static int8_t typed_key = -1;                    /* WRITE: the key last typed, lit a moment */
 
-static f32 bump(f32 hz, f32 sc)                  /* how much of the mouth's sound is near hz */
-{
-    f32 g = 0.0f;
-    int j;
-    for (j = 0; j < 3; j++) {
-        f32 d = (lg2(hz) - lg2(maxf(100.0f, M.f[j] * sc))) * 2.6f;
-        g += (j == 0 ? 1.0f : j == 1 ? 0.8f : 0.55f) * exp2fx(-d * d);
-    }
-    return g;
-}
-
 static void mouth(f32 cx, f32 cy, f32 w, f32 h, f32 a, f32 k)
 {
     f32 mw = w * (0.55f + 0.5f * P.wide) * (1.0f - 0.2f * P.bite);
@@ -927,16 +916,6 @@ static void eye(f32 x, f32 y, f32 r, f32 lid, f32 look, int pupil)
     g_line(x - r * 1.05f, y - ry, x + r * 1.05f, y - ry, 1.6f, lid * 0.9f);   /* (the lid) */
 }
 
-static void lash_eye(f32 x, f32 y, f32 r, f32 a)  /* shut, singing: a curve, the lashes under it */
-{
-    int i;
-    g_arc(x, y, r, 0.0f, 0.5f, 2.0f, a);
-    for (i = 0; i < 3; i++) {
-        f32 u = 0.12f + 0.13f * (f32)i, c = cos_turns(u), s = sin_turns(u);
-        g_line(x + c * r, y + s * r, x + c * r * 1.45f, y + s * r * 1.45f, 1.4f, a);
-    }
-}
-
 static void quad_poly(f32 *q, int n, f32 fill)   /* a filled shape (convex) with its edge */
 {
     f32 f[16];
@@ -949,7 +928,71 @@ static void quad_poly(f32 *q, int n, f32 fill)   /* a filled shape (convex) with
     g_poly(q, n, 1, 2.5f, 1.0f);
 }
 
-static SMALL void head(int style, f32 cx, f32 cy, f32 r, f32 lid, f32 on, f32 t, f32 look, f32 sc)
+/* The heads are drawn from tables as far as they hold still: each line one mark, in fiftieths of the
+ * head's size from its middle. MIR draws it again mirrored, PNT paints over (a = 0 erases), ON takes its
+ * ink from how loud it is. What moves is drawn by the code after. */
+typedef struct Pr { uint8_t op; int8_t x, y, a, b, c; uint8_t w, al; } Pr;
+enum { P_END, P_DISC, P_RING, P_ELL, P_LINE, P_ARC, P_RECT, P_GLOW };
+#define MIR 0x80
+#define PNT 0x40
+#define ON 0x20
+
+static void prims(const Pr *p, f32 cx, f32 cy, f32 r, f32 on)
+{
+    f32 u = r * 0.02f;
+    for (; p->op; p++) {
+        int m, op = p->op & 15;
+        for (m = 0; m <= (p->op >> 7); m++) {
+            f32 s = m ? -1.0f : 1.0f, x = cx + s * (f32)p->x * u, y = cy + (f32)p->y * u, a = (f32)p->a * u, b = (f32)p->b * u;
+            f32 w = (f32)p->w * 0.1f, al = (f32)p->al * (1.0f / 255.0f) * (p->op & ON ? on : 1.0f);
+            f32 t0 = (f32)p->b * 0.01f, t1 = (f32)p->c * 0.01f;
+            g_mode(p->op & PNT ? G_PAINT : G_MAX);
+            switch (op) {
+            case P_DISC: g_disc(x, y, a, al); break;
+            case P_RING: g_ring(x, y, a, w, al); break;
+            case P_ELL: g_ellipse(x, y, a, b, w, al); break;
+            case P_LINE: g_line(x, y, cx + s * a, cy + b, w, al); break;
+            case P_ARC: g_arc(x, y, a, m ? 0.5f - t1 : t0, m ? 0.5f - t0 : t1, w, al); break;
+            case P_RECT: g_rect(m ? x - a : x, y, a, b, al); break;
+            default: g_glow(x, y, a, al); break;
+            }
+        }
+    }
+    g_mode(G_MAX);
+}
+
+static const Pr ROBOT[] = {
+    {P_LINE, 0, -41, 0, -56, 0, 20, 255}, {P_GLOW, 0, -58, 5, 0, 0, 0, 102}, {P_GLOW | ON, 0, -58, 14, 0, 0, 0, 255},
+    {P_DISC, 0, -58, 3, 0, 0, 0, 255}, {P_RECT | MIR, -53, -11, 5, 22, 0, 0, 153}, {0}};
+static const Pr CHOIR[] = {
+    {P_DISC | PNT, 0, 0, 53, 0, 0, 0, 0}, {P_DISC | PNT, 0, 0, 50, 0, 0, 0, 26}, {P_RING, 0, 0, 50, 0, 0, 24, 255},
+    {P_ARC, 0, 0, 39, 60, 90, 20, 140}, {P_ARC | MIR, 19, -4, 8, 50, 100, 20, 255}, {P_DISC | MIR, 28, 9, 5, 0, 0, 0, 64},
+    {P_RING, 0, 53, 8, 0, 0, 18, 180}, {P_RING | MIR, 14, 53, 8, 0, 0, 18, 180}, {P_RING | MIR, 28, 53, 8, 0, 0, 18, 180},
+    {P_RING | MIR, 42, 53, 8, 0, 0, 18, 180}, {0}};
+static const Pr TALK[] = {
+    {P_ELL, 0, 0, 40, 50, 0, 0, 20}, {P_ELL, 0, 0, 40, 50, 0, 25, 255}, {P_ARC, 0, 2, 41, 60, 90, 30, 255},
+    {P_ARC, 8, -51, 9, 25, 75, 20, 255}, {P_ARC | MIR, 40, 0, 6, 75, 125, 20, 255},
+    {P_LINE, 0, -5, -4, 7, 0, 20, 153}, {P_LINE, -4, 7, 2, 7, 0, 20, 153}, {0}};
+static const Pr BROW[] = {{P_ARC | MIR, 16, -10, 12, 60, 90, 22, 255}, {0}};
+static const Pr WHISP[] = {
+    {P_GLOW, 0, 0, 85, 0, 0, 0, 56}, {P_GLOW | ON, 0, 0, 85, 0, 0, 0, 51}, {P_DISC, 0, -8, 40, 0, 0, 0, 61},
+    {P_RECT, -40, -8, 80, 40, 0, 0, 61}, {P_ARC, 0, -8, 40, 50, 100, 22, 204}, {P_LINE | MIR, -40, -8, -40, 35, 0, 22, 204},
+    {0}};
+static const Pr WHISP_EYES[] = {{P_ELL | PNT | MIR, 15, -11, 7, 10, 0, 0, 0}, {0}};
+static const Pr MONK[] = {
+    {P_ELL | PNT, 0, 6, 28, 35, 0, 0, 0}, {P_ELL, 0, 6, 28, 35, 0, 18, 128}, {P_GLOW | ON, 0, 21, 25, 0, 0, 0, 77},
+    {P_ARC | MIR, 11, -3, 6, 0, 50, 18, 140}, {0}};
+static const Pr DIVA[] = {
+    {P_RING, 0, -59, 13, 0, 0, 22, 255}, {P_ELL | PNT, 0, 0, 36, 45, 0, 0, 26}, {P_ELL, 0, 0, 36, 45, 0, 24, 255},
+    {P_ARC | MIR, 15, -10, 10, 60, 90, 18, 230}, {P_DISC, 16, 14, 2, 0, 0, 0, 255},
+    {P_ARC | MIR, 15, -8, 7, 0, 50, 20, 255},     /* her eyes shut, singing, the lashes under them */
+    {P_LINE | MIR, 20, -3, 23, 0, 0, 14, 255}, {P_LINE | MIR, 15, -1, 15, 3, 0, 14, 255}, {P_LINE | MIR, 10, -3, 7, 0, 0, 14, 255},
+    {0}};
+static const Pr ALIEN[] = {
+    {P_LINE | MIR, 14, -48, 28, -68, 0, 18, 255}, {P_GLOW | MIR, 28, -68, 3, 0, 0, 0, 128},
+    {P_GLOW | MIR | ON, 28, -68, 10, 0, 0, 0, 128}, {0}};
+
+static SMALL void head(int style, f32 cx, f32 cy, f32 r, f32 lid, f32 on, f32 t, f32 look)
 {
     f32 q[40];
     int i, j;
@@ -962,110 +1005,74 @@ static SMALL void head(int style, f32 cx, f32 cy, f32 r, f32 lid, f32 on, f32 t,
             q[2 * i + 1] = cy + (f32)B[2 * i + 1] * (B[2 * i + 1] * B[2 * i + 1] > 1 ? h * 0.5f : (h - c));
         }
         quad_poly(q, 8, 0.1f);
-        g_line(cx, cy - h, cx, cy - h - r * 0.3f, 2.0f, 1.0f);
-        g_glow(cx, cy - h - r * 0.34f, 6.0f + 12.0f * on, 0.4f + 0.6f * on);
-        g_disc(cx, cy - h - r * 0.34f, 3.5f, 1.0f);
-        g_rect(cx - w - 7.0f, cy - r * 0.22f, 6.0f, r * 0.44f, 0.6f);
-        g_rect(cx + w + 1.0f, cy - r * 0.22f, 6.0f, r * 0.44f, 0.6f);
+        prims(ROBOT, cx, cy, r, on);
         for (i = -1; i <= 1; i += 2) {
-            f32 ex = cx + (f32)i * r * 0.42f, ey = cy - r * 0.3f, s = r * 0.13f * (1.0f - lid) + 1.0f;
-            g_rect(ex - r * 0.19f, ey - s, r * 0.38f, 2.0f * s, 0.9f);
+            f32 ex = cx + (f32)i * r * 0.42f - r * 0.19f, ey = cy - r * 0.3f, s = r * 0.13f * (1.0f - lid) + 1.0f;
+            g_rect(ex, ey - s, r * 0.38f, 2.0f * s, 0.9f);
             g_mode(G_PAINT);                     /* a scan going across each */
-            g_rect(ex - r * 0.19f + fractf(t * 0.6f) * r * 0.32f, ey - s, 2.0f, 2.0f * s, 0.0f);
+            g_rect(ex + fractf(t * 0.6f) * r * 0.32f, ey - s, 2.0f, 2.0f * s, 0.0f);
             g_mode(G_MAX);
         }
-        g_mode(G_PAINT);
-        g_rect(mx0 - 4.0f, my - hm - 4.0f, r * 1.24f + 8.0f, 2.0f * hm + 8.0f, 0.0f);
-        g_mode(G_MAX);
         q[0] = mx0 - 4.0f; q[1] = my - hm - 4.0f; q[2] = mx0 + r * 1.24f + 4.0f; q[3] = q[1];
         q[4] = q[2]; q[5] = my + hm + 4.0f; q[6] = q[0]; q[7] = q[5];
+        g_mode(G_PAINT);
+        g_fill(q, 4, 0.0f);
+        g_mode(G_MAX);
         g_poly(q, 4, 1, 1.5f, 0.6f);
         P.mx = cx; P.my = my;
-        for (j = 0; j < 12; j++) {
-            f32 hz = 200.0f * exp2fx((f32)j * 0.42f), g, hh;
-            g = (bump(hz, sc) * M.av + (M.af + M.ah) * (j > 7 ? 0.7f : 0.1f)) * on;
-            hh = hm * (0.07f + 0.93f * sat(g * (1.0f - P.shut))) + 0.04f * hm * sin_turns(t * 0.3f + (f32)j * 0.08f);
+        for (j = 0; j < 12; j++) {               /* (the bands the vocoder is putting on the chord) */
+            f32 g = (M.bg[j + 2] * M.av + M.bgn[j + 2] * (M.af + M.ah)) * on;
+            f32 hh = hm * (0.07f + 0.93f * sat(g * (1.0f - P.shut)) + 0.04f * sin_turns(t * 0.3f + (f32)j * 0.08f));
             g_rect(mx0 + (f32)j * r * 0.105f, my - hh, r * 0.07f, 2.0f * hh, 1.0f);
         }
-        break;
+        return;
     }
     case 1:                                      /* CHOIR: three heads in a row, the middle one in front */
         for (i = 0; i < 3; i++) {
-            int o = i == 2 ? 0 : i ? 1 : -1;
-            f32 rr = r * (i == 2 ? 0.72f : 0.55f), x = cx + (f32)o * r * 1.05f;
+            f32 rr = r * (i == 2 ? 0.72f : 0.55f), x = cx + (f32)(i == 2 ? 0 : i ? 1 : -1) * r * 1.05f;
             f32 y = cy + (i == 2 ? 0.0f : r * 0.3f) + 2.5f * sin_turns(t * 0.45f + (f32)i * 0.33f);
-            g_mode(G_PAINT);
-            g_disc(x, y, rr + 3.0f, 0.0f);
-            g_disc(x, y, rr, 0.1f);
-            g_mode(G_MAX);
-            g_ring(x, y, rr, 2.4f, 1.0f);
-            g_arc(x, y, rr * 0.78f, 0.6f, 0.9f, 2.0f, 0.55f);
-            for (j = -1; j <= 1; j += 2) {
-                g_arc(x + (f32)j * rr * 0.38f, y - rr * 0.08f, rr * 0.15f, 0.5f, 1.0f, 2.0f, 1.0f);
-                g_disc(x + (f32)j * rr * 0.56f, y + rr * 0.18f, rr * 0.1f, 0.25f);
-            }
-            for (j = 0; j < 7; j++)
-                g_ring(x + ((f32)j - 3.0f) * rr * 0.28f, y + rr * 1.06f, rr * 0.16f, 1.8f, 0.7f);
+            prims(CHOIR, x, y, rr, on);
             mouth(x, y + rr * 0.45f, rr * 0.3f, rr * 0.4f, 1.0f, 0.8f + 0.2f * sin_turns(t * 0.7f + (f32)i * 0.4f));
         }
         P.mx = cx;
         P.my = cy + r * 0.28f;
-        break;
+        return;
     case 2:                                      /* TALK: a face, front on */
-        g_ellipse(cx, cy, r * 0.8f, r, 0.0f, 0.08f);
-        g_ellipse(cx, cy, r * 0.8f, r, 2.5f, 1.0f);
-        g_arc(cx, cy + r * 0.05f, r * 0.82f, 0.6f, 0.9f, 3.0f, 1.0f);
-        g_arc(cx + r * 0.15f, cy - r * 1.02f, r * 0.18f, 0.25f, 0.75f, 2.0f, 1.0f);
-        for (i = -1; i <= 1; i += 2) {
-            g_arc(cx + (f32)i * r * 0.32f, cy - r * 0.2f - on * r * 0.1f, r * 0.24f, 0.6f, 0.9f, 2.2f, 1.0f);
+        prims(TALK, cx, cy, r, on);
+        prims(BROW, cx, cy - on * r * 0.1f, r, on);
+        for (i = -1; i <= 1; i += 2)
             eye(cx + (f32)i * r * 0.32f, cy - r * 0.2f, r * 0.15f, lid, look, 1);
-            g_arc(cx + (f32)i * r * 0.8f, cy, r * 0.12f, i > 0 ? 0.75f : 0.25f, i > 0 ? 1.25f : 0.75f, 2.0f, 1.0f);
-        }
-        g_line(cx, cy - r * 0.1f, cx - r * 0.08f, cy + r * 0.14f, 2.0f, 0.6f);
-        g_line(cx - r * 0.08f, cy + r * 0.14f, cx + r * 0.05f, cy + r * 0.15f, 2.0f, 0.6f);
         mouth(cx, cy + r * 0.48f, r * 0.34f, r * 0.3f, 1.0f, 1.0f);
-        break;
-    case 3: {                                    /* WHISP: a ghost, its tail torn */
-        f32 x = cx + 6.0f * sin_turns(t * 0.21f), y = cy + 4.0f * sin_turns(t * 0.33f);
-        g_glow(x, y, r * 1.7f, 0.22f + 0.2f * on);
-        g_disc(x, y - r * 0.15f, r * 0.8f, 0.24f);
-        g_rect(x - r * 0.8f, y - r * 0.15f, r * 1.6f, r * 0.8f, 0.24f);
-        g_arc(x, y - r * 0.15f, r * 0.8f, 0.5f, 1.0f, 2.2f, 0.8f);
-        g_line(x - r * 0.8f, y - r * 0.15f, x - r * 0.8f, y + r * 0.7f, 2.2f, 0.8f);
-        g_line(x + r * 0.8f, y - r * 0.15f, x + r * 0.8f, y + r * 0.7f, 2.2f, 0.8f);
-        for (i = 0; i < 4; i++) {                /* the hem, waving */
-            f32 hx = x - r * 0.6f + (f32)i * r * 0.4f, hy = y + r * 0.66f + 3.0f * sin_turns(t * 0.5f + (f32)i * 0.25f);
+        return;
+    case 3:                                      /* WHISP: a ghost, its hem waving */
+        cx += 6.0f * sin_turns(t * 0.21f);
+        cy += 4.0f * sin_turns(t * 0.33f);
+        prims(WHISP, cx, cy, r, on);
+        for (i = 0; i < 4; i++) {
+            f32 hx = cx - r * 0.6f + (f32)i * r * 0.4f, hy = cy + r * 0.66f + 3.0f * sin_turns(t * 0.5f + (f32)i * 0.25f);
             g_disc(hx, hy, r * 0.2f, 0.24f);
             g_arc(hx, hy, r * 0.2f, 0.0f, 0.5f, 2.2f, 0.8f);
         }
-        g_mode(G_PAINT);
-        for (i = -1; i <= 1; i += 2)
-            g_ellipse(x + (f32)i * r * 0.3f, y - r * 0.22f, r * 0.14f, r * 0.2f * (1.0f - 0.7f * lid) + 1.0f, 0.0f, 0.0f);
-        g_mode(G_MAX);
-        mouth(x, y + r * 0.35f, r * 0.26f, r * 0.34f, 0.9f, 1.0f);
-        break;
-    }
+        prims(WHISP_EYES, cx, cy, r, on);
+        mouth(cx, cy + r * 0.35f, r * 0.26f, r * 0.34f, 0.9f, 1.0f);
+        return;
     case 4: {                                    /* CHIP: a head of pixels */
         f32 b = (f32)(int)(r * 0.15f + 0.5f), x0 = (f32)(int)((cx - 6.0f * b) / b) * b, y0 = (f32)(int)((cy - 6.0f * b) / b) * b;
         int mw = 2 + (int)(4.0f * P.wide + 0.5f), mh = (int)(0.5f + 3.5f * P.open * (1.0f - P.shut));
         g_rect(x0, y0, 12.0f * b, 12.0f * b, 0.08f);
-        for (i = 0; i < 12; i++) {
-            g_rect(x0 + (f32)i * b, y0, b - 1.0f, b - 1.0f, 1.0f);
-            g_rect(x0 + (f32)i * b, y0 + 11.0f * b, b - 1.0f, b - 1.0f, 1.0f);
-            g_rect(x0, y0 + (f32)i * b, b - 1.0f, b - 1.0f, 1.0f);
-            g_rect(x0 + 11.0f * b, y0 + (f32)i * b, b - 1.0f, b - 1.0f, 1.0f);
-        }
+        for (i = 0; i < 12; i++)
+            for (j = 0; j < 4; j++)
+                g_rect(x0 + (f32)(j < 2 ? i : (j & 1) * 11) * b, y0 + (f32)(j < 2 ? (j & 1) * 11 : i) * b, b - 1.0f, b - 1.0f, 1.0f);
         for (i = 0; i < 2; i++)
             g_rect(x0 + (f32)(3 + 4 * i) * b, y0 + (lid > 0.5f ? 4.0f : 3.0f) * b, 2.0f * b - 1.0f, (lid > 0.5f ? 1.0f : 2.0f) * b - 1.0f, 1.0f);
-        g_rect(x0 + 6.0f * b, y0 - b, b - 1.0f, b - 1.0f, 0.4f + 0.6f * on);
-        g_rect(x0 + 6.0f * b, y0 - 2.0f * b, b - 1.0f, b - 1.0f, on);
+        g_rect(x0 + 6.0f * b, y0 - 2.0f * b, b - 1.0f, 2.0f * b - 1.0f, 0.3f + 0.7f * on);
         for (i = 0; i < mw; i++)
             for (j = 0; j <= mh; j++)
                 if (!mh || j == 0 || j == mh || i == 0 || i == mw - 1)
                     g_rect(x0 + (f32)(6 - (mw + 1) / 2 + i) * b, y0 + (f32)(8 - mh / 2 + j) * b, b - 1.0f, b - 1.0f, 1.0f);
         P.mx = x0 + 6.0f * b;
         P.my = y0 + 8.0f * b;
-        break;
+        return;
     }
     case 5:                                      /* MONK: a hood, a face in its shadow, the drone in rings */
         for (i = 0; i <= 8; i++) {               /* (a dome, a little pointed) */
@@ -1076,52 +1083,35 @@ static SMALL void head(int style, f32 cx, f32 cy, f32 r, f32 lid, f32 on, f32 t,
             q[35 - 2 * i] = q[2 * i + 1];
         }
         quad_poly(q, 17, 0.16f);
-        g_mode(G_PAINT);
-        g_ellipse(cx, cy + r * 0.12f, r * 0.55f, r * 0.7f, 0.0f, 0.0f);
-        g_mode(G_MAX);
-        g_ellipse(cx, cy + r * 0.12f, r * 0.55f, r * 0.7f, 1.8f, 0.5f);
-        g_glow(cx, cy + r * 0.42f, r * 0.5f, 0.3f * on);
-        for (i = -1; i <= 1; i += 2)
-            g_arc(cx + (f32)i * r * 0.22f, cy - r * 0.05f, r * 0.11f, 0.0f, 0.5f, 1.8f, 0.55f);
+        prims(MONK, cx, cy, r, on);
         mouth(cx, cy + r * 0.42f, r * 0.22f, r * 0.26f, 0.95f, 1.0f);
         for (i = 0; i < 3; i++) {
             f32 ph = fractf(t * 0.4f + (f32)i * 0.333f);
             g_ring(cx, cy + r * 0.42f, r * 0.2f + ph * r * 1.4f, 1.5f, (1.0f - ph) * on * 0.8f);
         }
-        break;
-    case 6: {                                    /* DIVA: the hair, the lashes, the vibrato in her head */
-        f32 x = cx + 3.0f * on * sin_turns(P.wob);
+        return;
+    case 6:                                      /* DIVA: the hair, the lashes, the vibrato in her head */
+        cx += 3.0f * on * sin_turns(P.wob);
         for (i = 0; i < 9; i++) {
-            f32 u = 0.5f + (f32)i * 0.0625f, hx = x + cos_turns(u) * r * 0.92f, hy = cy - r * 0.12f + sin_turns(u) * r * 0.95f;
+            f32 u = 0.5f + (f32)i * 0.0625f, hx = cx + cos_turns(u) * r * 0.92f, hy = cy - r * 0.12f + sin_turns(u) * r * 0.95f;
             g_disc(hx, hy, r * 0.27f, 0.16f);
             g_ring(hx, hy, r * 0.27f, 1.8f, 0.8f);
         }
-        g_ring(x, cy - r * 1.18f, r * 0.26f, 2.2f, 1.0f);
-        g_mode(G_PAINT);
-        g_ellipse(x, cy, r * 0.72f, r * 0.9f, 0.0f, 0.1f);
-        g_mode(G_MAX);
-        g_ellipse(x, cy, r * 0.72f, r * 0.9f, 2.4f, 1.0f);
+        prims(DIVA, cx, cy, r, on);
         for (i = -1; i <= 1; i += 2) {
-            f32 ex = x + (f32)i * r * 0.3f, ey = cy - r * 0.15f, sw = 4.0f * sin_turns(P.wob * 0.5f + (f32)i * 0.1f);
-            if (on > 0.1f)
-                lash_eye(ex, ey, r * 0.14f, 1.0f);
-            else
-                eye(ex, ey, r * 0.14f, lid, look, 1);
-            g_arc(ex, ey - r * 0.04f, r * 0.2f, 0.6f, 0.9f, 1.8f, 0.9f);
-            g_line(x + (f32)i * r * 0.72f, cy + r * 0.1f, x + (f32)i * r * 0.72f + sw, cy + r * 0.32f, 1.5f, 0.8f);
-            g_disc(x + (f32)i * r * 0.72f + sw, cy + r * 0.36f, 3.5f, 1.0f);
+            f32 sw = (f32)i * r * 0.72f + 4.0f * sin_turns(P.wob * 0.5f + (f32)i * 0.1f);
+            g_line(cx + (f32)i * r * 0.72f, cy + r * 0.1f, cx + sw, cy + r * 0.32f, 1.5f, 0.8f);
+            g_disc(cx + sw, cy + r * 0.36f, 3.5f, 1.0f);
         }
-        g_disc(x + r * 0.32f, cy + r * 0.28f, 2.0f, 1.0f);
-        mouth(x, cy + r * 0.45f, r * 0.36f, r * 0.42f, 1.0f, 1.0f);
+        mouth(cx, cy + r * 0.45f, r * 0.36f, r * 0.42f, 1.0f, 1.0f);
         for (i = 0; i < 3; i++) {                /* and notes going up */
-            f32 ph = fractf(t * 0.22f + (f32)i * 0.333f), nx = x + r * (0.95f + 0.25f * sin_turns(ph + (f32)i * 0.3f)) * (i == 1 ? -1.0f : 1.0f);
+            f32 ph = fractf(t * 0.22f + (f32)i * 0.333f), nx = cx + r * (0.95f + 0.25f * sin_turns(ph + (f32)i * 0.3f)) * (i == 1 ? -1.0f : 1.0f);
             f32 ny = cy + r * 0.2f - ph * r * 1.5f, a = sin_turns(ph * 0.5f) * on;
             g_disc(nx, ny, 3.4f, a);
             g_line(nx + 3.0f, ny, nx + 3.0f, ny - 13.0f, 1.6f, a);
             g_line(nx + 3.0f, ny - 13.0f, nx + 8.0f, ny - 9.0f, 1.6f, a);
         }
-        break;
-    }
+        return;
     default:                                     /* ALIEN: a great head, eyes like seeds, the voice rung in halos */
         for (i = 0; i < 20; i++) {
             f32 u = (f32)i * 0.05f, s = sin_turns(u), wf = s < 0.0f ? 0.72f - 0.38f * s : 0.72f - 0.4f * s;
@@ -1129,32 +1119,30 @@ static SMALL void head(int style, f32 cx, f32 cy, f32 r, f32 lid, f32 on, f32 t,
             q[2 * i + 1] = cy + s * r * 1.02f;
         }
         quad_poly(q, 20, 0.12f);
+        prims(ALIEN, cx, cy, r, on);
         for (i = -1; i <= 1; i += 2) {
-            f32 ex = cx + (f32)i * r * 0.32f, ey = cy - r * 0.02f, rot = (f32)i * -0.07f;
+            f32 ex = cx + (f32)i * r * 0.32f, ey = cy - r * 0.02f, cr = cos_turns((f32)i * 0.07f), sr = sin_turns((f32)i * -0.07f);
             for (j = 0; j < 8; j++) {
-                f32 u = (f32)j * 0.125f, px = cos_turns(u) * r * 0.27f, py = sin_turns(u) * r * 0.13f * (1.0f - 0.8f * lid);
-                q[2 * j] = ex + px * cos_turns(rot) - py * sin_turns(rot);
-                q[2 * j + 1] = ey + px * sin_turns(rot) + py * cos_turns(rot);
+                f32 px = cos_turns((f32)j * 0.125f) * r * 0.27f, py = sin_turns((f32)j * 0.125f) * r * 0.13f * (1.0f - 0.8f * lid);
+                q[2 * j] = ex + px * cr - py * sr;
+                q[2 * j + 1] = ey + px * sr + py * cr;
             }
             g_fill(q, 8, 1.0f);
             g_mode(G_PAINT);
             g_disc(ex + (f32)i * r * 0.07f, ey - r * 0.03f + look * r * 0.03f, r * 0.04f, 0.0f);
             g_mode(G_MAX);
-            g_line(cx + (f32)i * r * 0.28f, cy - r * 0.95f, cx + (f32)i * r * 0.55f, cy - r * 1.35f, 1.8f, 1.0f);
-            g_glow(cx + (f32)i * r * 0.55f, cy - r * 1.35f, 4.0f + 10.0f * on, 0.5f + 0.5f * on);
         }
         mouth(cx, cy + r * 0.62f, r * 0.12f * (1.0f + 0.35f * sin_turns(M.vib * 9.0f)), r * 0.16f, 1.0f, 1.0f);
         for (i = 0; i < 2; i++) {
             f32 ph = fractf(t * 0.5f + (f32)i * 0.5f);
             g_ellipse(cx, cy - r * 1.15f - ph * r * 0.2f, r * (0.4f + 0.5f * ph), r * (0.08f + 0.08f * ph), 1.5f, (1.0f - ph) * on * 0.8f);
         }
-        break;
+        return;
     }
 }
 
 static SMALL void blab_draw(const Vis *vis)
 {
-    f32 sc = M.scale * (M.algo == 5 ? 0.86f : M.algo == 6 ? 1.16f : M.algo == 7 ? 1.45f : 1.0f);
     f32 lev = sat(vis->level * 4.0f), on = sat(lev * 3.0f), t = vis->t, dt = vis->dt, air = vis->k[3];
     f32 fade_in = absf(2.0f * vis->algo_t - 1.0f), k, r, cx = 120.0f, cy, lid, look;
     int i, ph = M.phrase, cur = M.shown, style = vis->algo_t < 0.5f ? vis->algo_prev : vis->algo, n = imax(1, nsyls(ph));
@@ -1210,7 +1198,7 @@ static SMALL void blab_draw(const Vis *vis)
         r *= 0.55f;
         cy = 58.0f;
     }
-    head(style, cx, cy, r * (1.0f + 0.03f * P.pop), lid, on, t, look, sc);
+    head(style, cx, cy, r * (1.0f + 0.03f * P.pop), lid, on, t, look);
 
     /* breath: out of the mouth with the hiss, and with AIR always */
     P.spawn += dt * (P.hiss * 26.0f + air * air * 7.0f + (style == 3 ? 5.0f * on : 0.0f));

@@ -109,7 +109,7 @@ static void knot_render(Voice *v, const Blk *b, f32 *out, int n)
 static f32 flow, ref_p = 60.0f, ref_v, e1s = 2.0f, e2s = 3.0f, scale_s = 1.0f, pop, popv, rot, idle = 1.0f;
 static uint32_t seen;
 
-static void knot_draw(const Vis *vis)
+static SMALL void knot_draw(const Vis *vis) /* (built small: room for BLAB) */
 {
     const KAlgo *a = &KA[vis->algo];
     f32 dt = vis->dt, t = vis->t, bloom = vis->k[0], ring = vis->k[1], twist = vis->k[2], warp = vis->k[3], mt = vis->algo_t;

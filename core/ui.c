@@ -853,7 +853,7 @@ static void build_palette(void)
 }
 
 /* ---- drawing ---------------------------------------------------------------------------- */
-static void draw_name(void)
+static APART void draw_name(void)
 {
     const char *name = insts[st.inst]->name;
     f32 t = name_t, size, w, a, y, scale;
@@ -882,7 +882,7 @@ static void draw_name(void)
     g_dim(1.0f);
 }
 
-static void draw_hud(void)
+static APART void draw_hud(void)
 {
     const InstDef *in = insts[st.inst];
     int i;
@@ -902,7 +902,7 @@ static void draw_hud(void)
     }
 }
 
-static void draw_toast(void)
+static APART void draw_toast(void)
 {
     f32 a = 1.0f - smooth01((toast_t - 0.9f) / 0.35f), y = 206.0f, w;
     int i;
@@ -949,7 +949,7 @@ static void shade_disc(f32 cx, f32 cy, f32 r, f32 k)
  * from seven o'clock round to five, with the number inside it and whose volume it is under that:
  * GLOBAL (MASTER) or INSTRUMENT (the one in hand: EDIT held, and SELECT or MASTER). It stays up while EDIT is
  * held. The picture behind it sits back while it is up. */
-static void draw_volume(f32 dt)
+static APART void draw_volume(f32 dt)
 {
     const char *label = ring_kind == RING_INST ? "INSTRUMENT" : "GLOBAL";
     const f32 cx = 120.0f, cy = 120.0f, t0 = 0.375f, sweep = 0.75f, nsz = 30.0f, nw = 3.9f;
@@ -1003,7 +1003,7 @@ static void rsquare(f32 x, f32 y, f32 sz, f32 a)
 /* The sequencer's mark, along the very bottom. Loop: a line that fills as the loop goes round.
  * Step: one notch a step, split into bars, a little taller on the beats; a step that holds notes
  * stands up, the one sounding is brightest, and the write cursor blinks under a dot. */
-static void draw_seq_mark(void)
+static APART void draw_seq_mark(void)
 {
     int s = seq.loop_state, i, n, pb, show;
     f32 gap, pitch, w, x;
@@ -1061,7 +1061,7 @@ static void draw_seq_mark(void)
     }
 }
 
-static void draw_page(void)
+static APART void draw_page(void)
 {
     const PageDef *pd = &pages[page];
     char buf[28];
