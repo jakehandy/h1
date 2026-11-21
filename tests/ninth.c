@@ -203,7 +203,7 @@ int main(void)
     to(11, 4);
     h1_midi(0xB0, 22, 0);
     memcpy(blob, h1_state(&size), size);
-    CHECK(size == 3596u, "a version 10 state is 3596 bytes");
+    CHECK(size == 3636u, "a version 10 state is 3636 bytes");
     ((H1State *)(void *)blob)->ninst = 12;
     h1_init(44100);
     CHECK(h1_state_load(blob, size) == 0, "it loads");
@@ -247,6 +247,44 @@ int main(void)
                 break;
         CHECK(a == NALGO && st.ip[16].algo == 0 && st.ink[16][1] == insts[16]->ink[1], "BLAB as new");
         CHECK(st.version == H1_VERSION && st.ninst == NINST, "and it is version 10 now");
+    }
+
+    /* BLAB's WRITE: EDIT, then the keys are letters (26 a space), OCT- one back, both OCT clear; EDIT
+     * again and WORDS is your own. The words are saved and come back, and junk in them is cleared. */
+    {
+        static uint8_t blob[sizeof(H1State)];
+        const void *sv;
+        uint32_t size;
+        static const int hi[] = {7, 4, 11, 11, 14, 26, 25};   /* H E L L O, a space, Z */
+        h1_init(44100);
+        h1_encoder(H1_ENC_PRESET, 16);
+        go(100);
+        h1_button(H1_BTN_EDIT, 1); h1_button(H1_BTN_EDIT, 0);
+        go(50);
+        CHECK(blab_writing, "EDIT on BLAB: WRITE");
+        for (i = 0; i < 7; i++) { h1_key(hi[i], 1); go(60); h1_key(hi[i], 0); go(60); }
+        CHECK(!strcmp(st.words, "HELLO Z"), "the keys write letters, the top key a space");
+        h1_button(H1_BTN_OCTDN, 1); h1_button(H1_BTN_OCTDN, 0);
+        h1_button(H1_BTN_OCTDN, 1); h1_button(H1_BTN_OCTDN, 0);
+        CHECK(!strcmp(st.words, "HELLO") && st.octave == 0, "OCT- takes one back, and the octave stays");
+        h1_button(H1_BTN_EDIT, 1); h1_button(H1_BTN_EDIT, 0);
+        go(100);
+        CHECK(!blab_writing && KNOBS_NOW(16)[0] == 0, "EDIT again: WORDS is your own");
+        peak = 0;
+        h1_key(10, 1); go(300); h1_key(10, 0); go(300);
+        CHECK(peak > 1000, "and it sings");
+        sv = h1_state(&size);
+        memcpy(blob, sv, size);
+        memcpy(blob + offsetof(H1State, words) + 7, "x\1", 2);     /* (junk after the words) */
+        h1_init(44100);
+        CHECK(h1_state_load(blob, size) == 0 && !strcmp(st.words, "HELLO") && st.words[7] == 0, "the words saved, junk cleared");
+        h1_encoder(H1_ENC_PRESET, 16 - h1_instrument());
+        h1_button(H1_BTN_EDIT, 1); h1_button(H1_BTN_EDIT, 0);
+        h1_button(H1_BTN_OCTUP, 1); h1_button(H1_BTN_OCTDN, 1);
+        h1_button(H1_BTN_OCTDN, 0); h1_button(H1_BTN_OCTUP, 0);
+        CHECK(!st.words[0], "both OCT: cleared");
+        h1_encoder(H1_ENC_PRESET, -1);
+        CHECK(!blab_writing, "another instrument: WRITE off");
     }
 
     printf("ninth: %d checks, %d failed\n", checks, fails);

@@ -76,7 +76,8 @@ typedef struct InstParams {
 
 #define H1_MAGIC 0x31483148u     /* "H1H1" */
 #define H1_VERSION 10u
-/* Version 10 is version 9 with room for twenty instruments, not sixteen (BLAB is the seventeenth): H1V9,
+/* Version 10 is version 9 with room for twenty instruments, not sixteen (BLAB is the seventeenth), and BLAB's
+ * words at the end: H1V9,
  * below, has version 9's offsets. Version 9 has room for NSLOT instruments of NALGO algorithms, and says in ninst how many it was saved
  * with: the slots from there on are taken as new when it is loaded, so instruments can be added without a
  * new version. Versions 4, 5, 6 and 8 are of fourteen instruments of eight algorithms (H1Old, below: only
@@ -124,6 +125,8 @@ typedef struct H1Old {           /* what versions 4 to 8 saved: only its offsets
     Layer layer[NLAYER];
 } H1Old;
 
+#define NWORDS 40
+
 typedef struct H1V9 {            /* what version 9 saved: only its offsets are used */
     uint32_t magic;
     uint8_t version, inst;
@@ -160,6 +163,7 @@ typedef struct H1State {
     uint8_t step_vel[NSTEP][NSNOTE];    /* each step note's velocity, 0 = 127 (version 8) */
     uint8_t step_lay[NSTEP][NSNOTE];    /* each step note's layer, 0 = none (it follows its part as it is now) */
     Layer layer[NLAYER];
+    char words[NWORDS];          /* BLAB's own words, as written on its keys: A to Z and spaces, 0 after */
 } H1State;
 
 /* the four home knobs of an instrument's algorithm, and of the algorithm it is on */
@@ -249,6 +253,9 @@ typedef struct InstDef {
 extern const InstDef inst_pip, inst_bonk, inst_urchin, inst_twang, inst_lava, inst_knot, inst_ink, inst_tide, inst_haunt,
                      inst_bard, inst_turbo, inst_orbit, inst_cozy, inst_koi, inst_tilt, inst_plunk, inst_blab;
 extern const InstDef *const insts[NINST];
+/* BLAB's WRITE mode (inst_blab.c): its keys are letters, A to Z and a space; OCT- takes one back */
+extern volatile uint8_t blab_writing;
+void blab_type(int key);                         /* a key 0..26 (26: a space), -1: the last one off, -2: all */
 /* how many algorithms an instrument has: eight, or nine where it names a ninth */
 #define NALGOS(i) (insts[i]->algo[NALGO - 1] ? NALGO : NALGO - 1)
 /* a part that names an instrument and one of the algorithms it has */

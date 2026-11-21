@@ -68,7 +68,7 @@ typedef char v5_is_920_bytes[H1_VERSION_5_SIZE == 920u ? 1 : -1];   /* must not 
 typedef char v6_is_1880_bytes[H1_VERSION_6_SIZE == 1880u ? 1 : -1];
 typedef char v8_is_3160_bytes[H1_VERSION_8_SIZE == 3160u ? 1 : -1];
 typedef char v9_is_3344_bytes[sizeof(H1V9) == 3344u ? 1 : -1];
-typedef char v10_is_3596_bytes[sizeof(H1State) == 3596u ? 1 : -1];
+typedef char v10_is_3636_bytes[sizeof(H1State) == 3636u ? 1 : -1];
 typedef char old_head_is_the_same[offsetof(H1Old, ip) == offsetof(H1State, ip) ? 1 : -1];
 typedef char the_slots_hold_the_instruments[NINST <= NSLOT && NSLOT * NALGO < 255 ? 1 : -1];
 typedef char v10_fits_a_store_object[sizeof(H1State) <= 3840u ? 1 : -1];
@@ -178,6 +178,12 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
         st.rsv[n] = 0;
     st.ninst = NINST;
     st.version = H1_VERSION;
+    for (n = 0; n < NWORDS; n++) {               /* BLAB's words: letters and spaces, ended */
+        char c = st.words[n];
+        if (n == NWORDS - 1u || !(c == ' ' || (c >= 'A' && c <= 'Z')))
+            for (; n < NWORDS; n++)
+                st.words[n] = 0;
+    }
     if (st.inst >= NINST) st.inst = 0;
     st.octave = (int8_t)iclamp(st.octave, -2, 2);
     st.hud &= 1;

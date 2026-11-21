@@ -96,7 +96,8 @@ static const Ph PH[NPH] = {
 
 /* ---- phrases ---------------------------------------------------------------------------- *
  * Each is what the screen shows, its syllables split by '-' and words by ' ', and how it is said:
- * ARPAbet-like phones split the same way, by '-' and '/'. The parser turns them into phones once. */
+ * ARPAbet-like phones split the same way, by '-' and '/'. The parser turns them into phones once. The
+ * first, at WORDS all the way down, is your own: written on the keys (WRITE) and spelt out below. */
 typedef struct Phrase { const char *show, *say; } Phrase;
 static const Phrase PHRASE[] = {
     {"HEL-LO", "HH EH - L OW"},
@@ -121,8 +122,10 @@ static const Phrase PHRASE[] = {
     {"BYE BYE", "B AY / B AY"},
 };
 #define NPHRASE ((int)(sizeof PHRASE / sizeof PHRASE[0]))
-#define NSYL 12                  /* syllables a phrase, at most */
+#define NWORD (NPHRASE + 1)      /* WORDS' choices: your own, then the phrases */
+#define NSYL 16                  /* syllables a phrase, at most */
 #define NSP 10                   /* phones a syllable, at most */
+#define NSHOW 84                 /* your own words as shown, split */
 
 typedef struct Syl {
     uint8_t n, nuc;              /* phones, and which is the vowel */
@@ -132,6 +135,17 @@ typedef struct Syl {
 
 static Syl syl[NPHRASE][NSYL];
 static uint8_t nsyl[NPHRASE];
+/* your own, twice over: the keys write one while the voice sings from the other, then they swap */
+static Syl mine[2][NSYL];
+static uint8_t nmine[2];
+static char mine_show[2][NSHOW];
+static volatile uint8_t mcur, mine_gen;
+volatile uint8_t blab_writing;
+static volatile int8_t want_letter = -1;         /* WRITE: the letter the next key sings */
+
+static const Syl *syls(int p) { return p ? syl[p - 1] : mine[mcur]; }
+static int nsyls(int p) { return p ? nsyl[p - 1] : nmine[mcur]; }
+static const char *shows(int p) { return p ? PHRASE[p - 1].show : mine_show[mcur]; }
 
 /* a token to phones: a vowel, a diphthong (vowel + glide), or a consonant (stops as closure, burst, breath) */
 static int tok(const char *s, int n, uint8_t *out, int *is_vowel)
@@ -160,43 +174,277 @@ static int tok(const char *s, int n, uint8_t *out, int *is_vowel)
     return 0;
 }
 
+/* phones, split by '-' and '/', into syllables: how many */
+static APART int parse_say(const char *s, Syl *y0, int max)
+{
+    Syl *y = y0;
+    int ns = 0, i;
+    y->n = 0; y->nuc = 255; y->word = 1;
+    while (*s && *s != '|') {
+        if (*s == ' ') { s++; continue; }
+        if (*s == '-' || *s == '/') {
+            if (y->n && ns < max - 1) {
+                y = &y0[++ns];
+                y->n = 0; y->nuc = 255; y->word = (uint8_t)(*s == '/');
+            } else if (*s == '/' && !y->n)
+                y->word = 1;
+            s++;
+            continue;
+        }
+        for (i = 0; s[i] && s[i] != ' ' && s[i] != '-' && s[i] != '/' && s[i] != '|'; i++)
+            ;
+        {
+            uint8_t ph[3];
+            int v, k = tok(s, i, ph, &v), j;
+            for (j = 0; j < k && y->n < NSP; j++) {
+                if (v && j == 0 && y->nuc == 255)
+                    y->nuc = y->n;
+                y->ph[y->n++] = ph[j];
+            }
+        }
+        s += i;
+    }
+    for (i = 0; i <= ns; i++)
+        if (y0[i].nuc == 255)
+            y0[i].nuc = 0;
+    return y0[0].n ? ns + 1 : 0;
+}
+
+/* ---- your own words: spelling to sounds --------------------------------------------------- *
+ * English spelling, read the way a reader guesses at a word: the words it gets wrong most are looked up
+ * (EX), the rest go letter by letter through RU, longest first, and what RU leaves goes by the letter
+ * itself (a vowel long before a last E or at the end of a word, short otherwise). ^ is the start of a
+ * word, $ its end. Then each word is cut into syllables, a vowel each, a consonant between two going with
+ * the second, and two going one each way unless they start a word well together (PL, TR, ST...). */
+static const char LETTER[] =   /* WRITE sings each letter's name */
+    "EY|B IY|S IY|D IY|IY|EH F|JH IY|EY CH|AY|JH EY|K EY|EH L|EH M|EH N|OW|P IY|K Y UW|AA R|EH S|T IY|"
+    "Y UW|V IY|D AH B L Y UW|EH K S|W AY|Z IY|";
+
+static const char EX[] =
+    "THE:DH AX|A:AX|I:AY|TO:T UW|DO:D UW|YOU:Y UW|YOUR:Y AO R|OF:AH V|ONE:W AH N|TWO:T UW|ARE:AA R|"
+    "WAS:W AH Z|IS:IH Z|HAS:HH AE Z|AS:AE Z|WHAT:W AH T|WHO:HH UW|LOVE:L AH V|SAID:S EH D|EYE:AY|"
+    "THIS:DH IH S|THAT:DH AE T|THEY:DH EY|THEM:DH EH M|THEN:DH EH N|THERE:DH EH R|THEIR:DH EH R|"
+    "WHERE:W EH R|COME:K AH M|SOME:S AH M|DONE:D AH N|GONE:G AO N|HAVE:HH AE V|GIVE:G IH V|LIVE:L IH V|"
+    "FOUR:F AO R|EIGHT:EY T|OWN:OW N|KNOW:N OW|GOOD:G UH D|FROM:F R AH M|WANT:W AA N T|BEEN:B IH N|"
+    "ANY:EH N IY|MANY:M EH N IY|AGAIN:AX G EH N|PEOPLE:P IY P AX L|MUSIC:M Y UW Z IH K|HEART:HH AA R T|"
+    "WORLD:W ER L D|WORD:W ER D|WORK:W ER K|BE:B IY|ME:M IY|WE:W IY|HE:HH IY|SHE:SH IY|YEAH:Y EH|"
+    "OK:OW K EY|PUT:P UH T|FULL:F UH L|BUSY:B IH Z IY|ONCE:W AH N S|BECAUSE:B IH K AH Z|ROBOT:R OW B AA T|"
+    "HELLO:HH EH L OW|BODY:B AA D IY|MONEY:M AH N IY|HONEY:HH AH N IY|COMPUTER:K AX M P Y UW T ER|EYES:AY Z|GONNA:G AA N AX|DOOR:D AO R|FLOOR:F L AO R|OUT:AW T|NOW:N AW|HOW:HH AW|WOW:W AW|DOWN:D AW N|BABY:B EY B IY|WATER:W AO T ER|"
+    "ONLY:OW N L IY|EVERY:EH V R IY|FRIEND:F R EH N D|NEVER:N EH V ER|SING:S IH NG|GREAT:G R EY T|"
+    "BREAK:B R EY K|MACHINE:M AX SH IY N|CRAZY:K R EY Z IY|LADY:L EY D IY|PAPER:P EY P ER|TIGER:T AY G ER|"
+    "HEY:HH EY|BEAUTIFUL:B Y UW T IH F AX L|HEAVEN:HH EH V AX N|HEAD:HH EH D|DEAD:D EH D|READY:R EH D IY|"
+    "GREY:G R EY|SEVEN:S EH V AX N|AWAY:AX W EY|";
+static const char RU[] =
+    "^KN:N|^WR:R|^Y:Y|RH:R|OLD:OW L D|IND$:AY N D|ILD$:AY L D|TION:SH AX N|SION:ZH AX N|OUGH:AO|EIGH:EY|IGH:AY|DGE:JH|TCH:CH|EAR:IY R|AIR:EH R|"
+    "OUR:AW R|ALL:AO L|ALK:AO K|OOK:UH K|QU:K W|CH:CH|SH:SH|TH:TH|PH:F|WH:W|CK:K|NG:NG|NK:NG K|EE:IY|"
+    "EA:IY|OO:UW|OU:AW|OW$:OW|OW:AW|EY$:IY|AI:EY|AY:EY|OA:OW|OI:OY|OY:OY|AU:AO|AW:AO|EW:UW|UE:UW|IE$:AY|IE:IY|"
+    "EY:EY|AR:AA R|OR:AO R|ER:ER|IR:ER|UR:ER|LE$:AX L|GE$:JH|X:K S|^GH:G|GH:|A$:AA|";
+#define NTK 48
+static struct { char t[NTK][3]; uint8_t src[NTK]; int n; } W;   /* a word's phones, and the letter each began at */
+
+static int isvow(const char *t)
+{
+    static const char V[] = "IYIHEHAEAAAOUHUWAHERAXEYAYOYOWAW";
+    int i;
+    for (i = 0; V[i]; i += 2)
+        if (t[0] == V[i] && t[1] == V[i + 1])
+            return 1;
+    return 0;
+}
+
+static int vowel_letter(char c) { return c == 'A' || c == 'E' || c == 'I' || c == 'O' || c == 'U'; }
+
+static void emit(const char *p, int n, int src)  /* phones (space split, to n chars) onto the word */
+{
+    int i = 0;
+    while (i < n && p[i] && p[i] != '|') {
+        int k = 0;
+        while (i < n && p[i] == ' ') i++;
+        if (i >= n || !p[i] || p[i] == '|') break;
+        if (W.n < NTK) {
+            while (i < n && p[i] && p[i] != ' ' && p[i] != '|' && k < 2)
+                W.t[W.n][k++] = p[i++];
+            W.t[W.n][k] = 0;
+            W.src[W.n++] = (uint8_t)src;
+        }
+        while (i < n && p[i] && p[i] != ' ' && p[i] != '|') i++;
+    }
+}
+
+/* the entry of a table that w (n letters, from at) starts with: its length matched, and its phones */
+static int look(const char *tab, const char *w, int at, int n, int whole, const char **ph)
+{
+    const char *e = tab;
+    while (*e) {
+        const char *g = e;
+        int k = 0, ok = 1, start = *g == '^';
+        if (start) g++;
+        while (g[k] && g[k] != ':' && g[k] != '$') k++;
+        if (start && at) ok = 0;
+        if (whole && k != n - at) ok = 0;
+        if (g[k] == '$' && at + k != n) ok = 0;
+        if (ok && at + k <= n) {
+            int j;
+            for (j = 0; j < k; j++)
+                if (g[j] != w[at + j]) { ok = 0; break; }
+            if (ok) {
+                while (*g != ':') g++;
+                *ph = g + 1;
+                return k;
+            }
+        }
+        while (*e && *e != '|') e++;
+        if (*e) e++;
+    }
+    return 0;
+}
+
+static APART void spell(const char *w, int n)    /* a word's letters to phones, into W */
+{
+    static const char CON[] = "  B K D   F G HH  JHK L M N   P K R S T   V W   Y Z ";   /* each letter by itself */
+    const char *ph;
+    int i = 0, k, other = 0, skip = -1;
+    W.n = 0;
+    if (look(EX, w, 0, n, 1, &ph)) {
+        emit(ph, 64, 0);
+        for (k = 0; k < W.n; k++)                /* (where its syllables start, near enough) */
+            W.src[k] = (uint8_t)(k * n / W.n);
+        return;
+    }
+    if (n == 1) {                                /* a letter alone: its name */
+        for (ph = LETTER, k = w[0] - 'A'; k > 0; ph++)
+            k -= *ph == '|';
+        emit(ph, 64, 0);
+        return;
+    }
+    while (i < n) {
+        char c = w[i], nx = i + 1 < n ? w[i + 1] : 0;
+        if (i == skip || (i && c == w[i - 1] && !vowel_letter(c)) || (c == 'H' && i == n - 1 && i)) {
+            i++;                                 /* a double consonant: one; a last E after one, or H: not said */
+            continue;
+        }
+        if ((k = look(RU, w, i, n, 0, &ph)) != 0 && !(skip > i && skip < i + k)) {
+            emit(ph, 64, i);
+            other |= vowel_letter(c) || c == 'Y';
+            i += k;
+            continue;
+        }
+        if (vowel_letter(c)) {
+            static const char SHORT[] = "AEEHIHAAAH", LONG[] = "EYIYAYOWUW";
+            int v = c == 'A' ? 0 : c == 'E' ? 1 : c == 'I' ? 2 : c == 'O' ? 3 : 4;
+            int magic = i + 2 < n && w[i + 2] == 'E' && !vowel_letter(nx) && (i + 3 == n || (i + 4 == n && w[i + 3] == 'S'));
+            if (c == 'E' && i == n - 1 && other) { i++; continue; }     /* a last E: not said */
+            if (!i && c == 'A' && n > 3 && !vowel_letter(nx) && vowel_letter(w[2]))
+                emit("AX", 2, i);                /* ALONG, AWAY, AGO */
+            else if (magic || (i == n - 1) || (vowel_letter(nx) && nx != c)
+                     || (v >= 3 && i + 2 < n && !vowel_letter(nx) && nx != 'R' && vowel_letter(w[i + 2])))
+                emit(LONG + 2 * v, 2, i);        /* (and O, U open: OVER, SUPER) */
+            else
+                emit(SHORT + 2 * v, 2, i);
+            other = 1;
+            if (magic) {
+                skip = i + 2;
+                if (nx == 'S') { emit("Z", 1, i + 1); i += 2; continue; }   /* ROSE, WISE */
+            }
+            i++;
+            continue;
+        }
+        if (c == 'Y') {                          /* last: EE after a vowel, EYE alone (MY); inside: IH */
+            emit(i == n - 1 ? (other ? "IY" : "AY") : "IH", 2, i);
+            other = 1;
+        } else if (c == 'C')
+            emit(nx == 'E' || nx == 'I' || nx == 'Y' ? "S" : "K", 1, i);
+        else if (c >= 'A' && c <= 'Z')
+            emit(CON + 2 * (c - 'A'), 2, i);
+        i++;
+    }
+}
+
+static int onset2(const char *a, const char *b)  /* two consonants that start a syllable well */
+{
+    int liq = (b[0] == 'R' || b[0] == 'L' || b[0] == 'W') && !b[1];
+    if (a[0] == 'S' && !a[1])
+        return liq || ((b[0] == 'P' || b[0] == 'T' || b[0] == 'K' || b[0] == 'M' || b[0] == 'N') && !b[1]);
+    return liq && (a[1] == 'H' ? a[0] == 'T' || a[0] == 'S' : a[1] == 0 && a[0] != 'R' && a[0] != 'L' && a[0] != 'M'
+                   && a[0] != 'N' && a[0] != 'W' && a[0] != 'Y' && a[0] != 'V' && a[0] != 'Z');
+}
+
+static char *put(char *d, const char *s, const char *end)
+{
+    while (*s && d < end)
+        *d++ = *s++;
+    return d;
+}
+
+/* your words into syllables: the voice's copy that is not singing, then swapped in */
+static char say[NWORDS * 10];
+static APART void build_mine(void)
+{
+    const char *s = st.words;
+    char *d = say, *sh, *de = say + sizeof say - 8, *she;
+    int b = mcur ^ 1, i = 0, n;
+    sh = mine_show[b];
+    she = sh + NSHOW - 3;
+    while (s[i]) {
+        int w0, nv = 0, k, cut[NTK], nc = 0, last = -1, at;
+        while (s[i] == ' ') i++;
+        if (!s[i]) break;
+        for (w0 = i; s[i] && s[i] != ' '; i++)
+            ;
+        spell(s + w0, i - w0);
+        for (k = 0; k < W.n; k++)                /* where each syllable after the first begins */
+            if (isvow(W.t[k])) {
+                if (last >= 0) {
+                    int m = k - last - 1, c = m == 0 ? k : m == 1 ? k - 1 : onset2(W.t[k - 2], W.t[k - 1]) ? k - 2 : k - 1;
+                    if (nc < NTK) cut[nc++] = c;
+                }
+                last = k;
+                nv++;
+            }
+        if (d != say)
+            d = put(d, " / ", de);
+        if (sh != mine_show[b] && sh < she)
+            *sh++ = ' ';
+        for (k = 0, at = 0; k < W.n; k++) {
+            if (at < nc && cut[at] == k) {
+                d = put(d, " - ", de);
+                at++;
+            }
+            d = put(d, " ", de);
+            d = put(d, W.t[k], de);
+        }
+        for (k = 0, at = 0, last = 0; w0 + k < i; k++) {   /* the letters, split where the syllables are */
+            while (at < nc) {
+                int c = W.src[cut[at]], len = i - w0;
+                if (c + 1 < len && s[w0 + c] == s[w0 + c + 1])
+                    c++;                         /* (a double letter splits between: HEL-LO) */
+                if (c <= last) c = last + 1;
+                if (c != k) break;
+                if (sh < she) *sh++ = '-';
+                last = c;
+                at++;
+                break;
+            }
+            if (sh < she) *sh++ = s[w0 + k];
+        }
+        (void)nv;
+    }
+    *d = 0;
+    *sh = 0;
+    n = parse_say(say, mine[b], NSYL);
+    if (!n)
+        n = parse_say("L AA", mine[b], 1);       /* nothing written: it sings LA */
+    nmine[b] = (uint8_t)n;
+    mcur = (uint8_t)b;
+    mine_gen++;
+}
+
 static APART void parse(void)
 {
-    int p, i;
-    for (p = 0; p < NPHRASE; p++) {
-        const char *s = PHRASE[p].say;
-        Syl *y = &syl[p][0];
-        int ns = 0, word = 1;
-        y->n = 0; y->nuc = 255; y->word = 1;
-        while (*s) {
-            if (*s == ' ') { s++; continue; }
-            if (*s == '-' || *s == '/') {
-                word = *s == '/';
-                if (ns < NSYL - 1) {
-                    y = &syl[p][++ns];
-                    y->n = 0; y->nuc = 255; y->word = (uint8_t)word;
-                }
-                s++;
-                continue;
-            }
-            for (i = 0; s[i] && s[i] != ' ' && s[i] != '-' && s[i] != '/'; i++)
-                ;
-            {
-                uint8_t ph[3];
-                int v, k = tok(s, i, ph, &v), j;
-                for (j = 0; j < k && y->n < NSP; j++) {
-                    if (v && j == 0 && y->nuc == 255)
-                        y->nuc = y->n;
-                    y->ph[y->n++] = ph[j];
-                }
-            }
-            s += i;
-        }
-        nsyl[p] = (uint8_t)(ns + 1);
-        for (i = 0; i <= ns; i++)
-            if (syl[p][i].nuc == 255)
-                syl[p][i].nuc = 0;
-    }
+    int p;
+    for (p = 0; p < NPHRASE; p++)
+        nsyl[p] = (uint8_t)parse_say(PHRASE[p].say, syl[p], NSYL);
+    build_mine();
 }
 
 /* ---- the mouth -------------------------------------------------------------------------- */
@@ -207,6 +455,7 @@ typedef struct Res { f32 a, b, c, y1, y2; } Res;
 static struct {
     int algo, me;
     int phrase, at;              /* the phrase, and the syllable the next key sings */
+    int gen;                     /* your words as last seen (mine_gen) */
     int shown;                   /* the syllable sounding (for the picture), -1: none yet */
     uint8_t q[NQ];               /* phones to say */
     uint16_t qd[NQ];             /* each one's control blocks, 0: held while a key is */
@@ -329,10 +578,9 @@ static void start_phone(int i, f32 sr)
     (void)sr;
 }
 
-/* a key went down: the next syllable starts */
-static void syllable(f32 sr)
+/* a key went down: a syllable starts */
+static void sing(const Syl *y, f32 sr)
 {
-    const Syl *y = &syl[M.phrase][M.at % nsyl[M.phrase]];
     int i, k;
     /* what is left of the last syllable is cut short: its ending, quickly, then this one */
     k = 0;
@@ -355,13 +603,19 @@ static void syllable(f32 sr)
     M.coda_from = y->nuc + 1;
     M.coda_n = y->n - y->nuc - 1;
     M.coda_done = 0;
-    M.shown = M.at % nsyl[M.phrase];
-    M.at = (M.at + 1) % nsyl[M.phrase];
     M.since_on = 0;
     start_phone(0, sr);
     if (PH[M.q[0]].kind == K_VOW || PH[M.q[0]].kind == K_SEMI || PH[M.q[0]].kind == K_NAS)
         for (i = 0; i < 3; i++)                  /* a syllable that starts open starts there, not on a glide */
             M.f[i] = M.tf[i];
+}
+
+static void syllable(f32 sr)                     /* the next of the phrase */
+{
+    int n = imax(1, nsyls(M.phrase));
+    M.shown = M.at % n;
+    M.at = (M.at + 1) % n;
+    sing(&syls(M.phrase)[M.shown], sr);
 }
 
 /* ---- the voices: the carriers ----------------------------------------------------------- */
@@ -374,10 +628,12 @@ static void blab_block(const Blk *b)
         M.tbw[0] = 60.0f; M.tbw[1] = 90.0f; M.tbw[2] = 150.0f;
     }
     M.algo = b->algo;
-    i = (int)(b->k[0] * (f32)NPHRASE * 0.999f);
-    if (i != M.phrase) {                         /* a new phrase starts at its beginning */
-        M.phrase = iclamp(i, 0, NPHRASE - 1);
+    i = iclamp((int)(b->k[0] * (f32)NWORD * 0.999f), 0, NWORD - 1);
+    if (i != M.phrase || (!i && M.gen != mine_gen)) {   /* a new phrase (or your words written anew): from the top */
+        M.phrase = i;
+        M.gen = mine_gen;
         M.at = 0;
+        M.shown = -1;
     }
     M.scale = BLAB_SC * exp2fx((b->k[1] - 0.5f) * 0.9f);
     M.drawl = b->k[2];
@@ -452,12 +708,20 @@ static void mouth_step(const Blk *b)
     M.since_on++;
     if (M.fresh_note) {
         M.fresh_note = 0;
-        if (M.since_on > 2 || M.shown < 0 || M.qn == 0)   /* (notes of a chord sing one syllable) */
+        if (blab_writing && want_letter >= 0) {  /* WRITE: the key's letter, by name */
+            const char *s = LETTER;
+            Syl t;
+            for (i = want_letter; i > 0; s++)
+                i -= *s == '|';
+            want_letter = -1;
+            parse_say(s, &t, 1);
+            sing(&t, sr);
+        } else if (M.since_on > 2 || M.shown < 0 || M.qn == 0)   /* (notes of a chord sing one syllable) */
             syllable(sr);
     }
     if (gate)
         M.quiet = 0;
-    else if (++M.quiet > (uint32_t)(2.5f * sr / (f32)CTRL) && M.at) {
+    else if (++M.quiet > (uint32_t)(2.5f * sr / (f32)CTRL) && M.at && !blab_writing) {
         M.at = 0;                                /* a long rest: from the top of the phrase again */
         M.shown = -1;
     }
@@ -597,238 +861,480 @@ static void blab_post(const Blk *b, f32 *l, f32 *r, int n)
 }
 
 /* ---- picture ---------------------------------------------------------------------------- *
- * A voiceprint: time runs right to left, pitch of the mouth up the screen, and the formants are written
- * as they are sung, so you see the vowels. The words sit above it: the phrase, and the syllable sounding
- * large. With nothing played the next vowel waits at the right edge, breathing, so MOUTH moves it, AIR
- * hazes it and WORDS changes what it will be. */
-#define NH 80                    /* the print's columns, three pixels each */
-#define PY0 96.0f                /* the print: from this row */
-#define PY1 236.0f               /* to this */
+ * A head that sings. Its mouth is the one the voice is shaped by: the first formant opens it, the second
+ * spreads it (EE) or rounds it (OO), M, B and P shut it, F and V bite the lip, and the hiss shows the
+ * teeth. Every voice is its own head; the words run along the bottom, the syllable sounding large above
+ * them. With nothing played the head breathes and its mouth waits on the next vowel. WRITE: the head
+ * goes up, and the keys are drawn with their letters.
+ *
+ *   K1 WORDS   the words along the bottom
+ *   K2 MOUTH   a giant's head to a chipmunk's
+ *   K3 DRAWL   the eyelids droop, the mouth slurs
+ *   K4 AIR     breath out of the mouth */
+#define NPUFF 18
 static struct {
-    uint8_t fy[NH][3], a[NH], h[NH], hy[NH], band[NH][NB];
-    int head;
-    f32 acc, pop, popv, wob;
-    int seen;
-    int inited;
+    f32 open, wide, hiss, shut, bite;            /* the mouth, eased */
+    f32 pop, popv, blink, wob, tflash;
+    f32 mx, my;                                  /* where the mouth is (for the breath) */
+    f32 puff[NPUFF][4];                          /* breath: x, y, age (0: free), size */
+    f32 spawn;
+    int seen, inited;
 } P;
+static int8_t typed_key = -1;                    /* WRITE: the key last typed, lit a moment */
 
-static f32 fy(f32 hz)                            /* a frequency to a row: 120 Hz at the bottom, 5 kHz at the top */
+static f32 bump(f32 hz, f32 sc)                  /* how much of the mouth's sound is near hz */
 {
-    return PY1 - (lg2(maxf(hz, 60.0f)) - 6.907f) * ((PY1 - PY0) / 5.38f);
-}
-
-static void column(const Vis *vis, f32 sc, f32 lev)
-{
+    f32 g = 0.0f;
     int j;
-    uint8_t *c;
-    P.head = (P.head + 1) % NH;
-    for (j = 0; j < 3; j++)
-        P.fy[P.head][j] = (uint8_t)clampf(fy(M.f[j] * sc), 0.0f, 255.0f);
-    P.a[P.head] = (uint8_t)(sat(M.av * lev) * 255.0f);
-    P.h[P.head] = (uint8_t)(sat(M.af * 1.2f + M.ah * lev * 1.6f) * 255.0f);
-    P.hy[P.head] = (uint8_t)clampf(fy(M.fc > 200.0f ? M.fc : 3000.0f), 0.0f, 255.0f);
-    c = P.band[P.head];
-    for (j = 0; j < NB; j++) {                   /* ROBOT's rows: the mouth read off at its bands */
-        f32 g = 0.02f;
-        int k;
-        for (k = 0; k < 3; k++) {
-            f32 d = (lg2(BANDF[j]) - lg2(maxf(100.0f, M.f[k] * sc))) * 2.6f;
-            g += (k == 0 ? 1.0f : k == 1 ? 0.8f : 0.55f) * exp2fx(-d * d);
+    for (j = 0; j < 3; j++) {
+        f32 d = (lg2(hz) - lg2(maxf(100.0f, M.f[j] * sc))) * 2.6f;
+        g += (j == 0 ? 1.0f : j == 1 ? 0.8f : 0.55f) * exp2fx(-d * d);
+    }
+    return g;
+}
+
+static void mouth(f32 cx, f32 cy, f32 w, f32 h, f32 a, f32 k)
+{
+    f32 mw = w * (0.55f + 0.5f * P.wide) * (1.0f - 0.2f * P.bite);
+    f32 mh = h * (0.07f + P.open * k) * (1.25f - 0.5f * P.wide) * (1.0f - P.shut);
+    P.mx = cx; P.my = cy;
+    if (mh < 1.8f) {                             /* shut: the lips pressed */
+        g_line(cx - mw, cy, cx + mw, cy, 2.6f + P.shut, a);
+        return;
+    }
+    g_mode(G_PAINT);
+    g_ellipse(cx, cy, mw, mh, 0.0f, 0.0f);       /* (the mouth is dark inside) */
+    g_mode(G_MAX);
+    if (P.open > 0.3f)                           /* the tongue */
+        g_ellipse(cx, cy + mh * 0.55f, mw * 0.45f, mh * 0.32f, 0.0f, a * 0.35f);
+    if (P.hiss > 0.06f || P.open > 0.25f)        /* the teeth */
+        g_rect(cx - mw * 0.5f, cy - mh + 1.5f, mw, minf(mh * 0.45f, 2.0f + 5.0f * P.hiss), a * (0.3f + 0.6f * P.hiss));
+    if (P.bite > 0.1f)                           /* F, V: the lip under the teeth */
+        g_line(cx - mw * 0.6f, cy - mh * 0.15f, cx + mw * 0.6f, cy - mh * 0.15f, 2.2f, a * P.bite);
+    g_ellipse(cx, cy, mw, mh, 2.6f, a);
+}
+
+static void eye(f32 x, f32 y, f32 r, f32 lid, f32 look, int pupil)
+{
+    f32 ry = r * (1.0f - lid);
+    if (ry < 1.4f) {
+        g_line(x - r, y, x + r, y, 2.0f, 1.0f);
+        return;
+    }
+    g_ellipse(x, y, r, ry, 2.0f, 1.0f);
+    if (pupil)
+        g_disc(x + r * 0.2f * sin_turns(P.wob * 0.05f), y + look * ry * 0.4f, r * 0.42f, 1.0f);
+    g_line(x - r * 1.05f, y - ry, x + r * 1.05f, y - ry, 1.6f, lid * 0.9f);   /* (the lid) */
+}
+
+static void lash_eye(f32 x, f32 y, f32 r, f32 a)  /* shut, singing: a curve, the lashes under it */
+{
+    int i;
+    g_arc(x, y, r, 0.0f, 0.5f, 2.0f, a);
+    for (i = 0; i < 3; i++) {
+        f32 u = 0.12f + 0.13f * (f32)i, c = cos_turns(u), s = sin_turns(u);
+        g_line(x + c * r, y + s * r, x + c * r * 1.45f, y + s * r * 1.45f, 1.4f, a);
+    }
+}
+
+static void quad_poly(f32 *q, int n, f32 fill)   /* a filled shape (convex) with its edge */
+{
+    f32 f[16];
+    int i;
+    for (i = 0; i < 8 && n > 8; i++) {           /* (filled through eight of its points: the edge covers the rest) */
+        f[2 * i] = q[2 * (i * (n - 1) / 7)];
+        f[2 * i + 1] = q[2 * (i * (n - 1) / 7) + 1];
+    }
+    g_fill(n > 8 ? f : q, n > 8 ? 8 : n, fill);
+    g_poly(q, n, 1, 2.5f, 1.0f);
+}
+
+static SMALL void head(int style, f32 cx, f32 cy, f32 r, f32 lid, f32 on, f32 t, f32 look, f32 sc)
+{
+    f32 q[40];
+    int i, j;
+    switch (style) {
+    case 0: {                                    /* ROBOT: a box, and its mouth is the vocoder's bands */
+        f32 w = r * 0.95f, h = r * 0.82f, c = r * 0.2f, mx0 = cx - r * 0.62f, my = cy + r * 0.42f, hm = r * 0.26f;
+        static const int8_t B[16] = {-1, -2, 1, -2, 2, -1, 2, 1, 1, 2, -1, 2, -2, 1, -2, -1};   /* (2: the side, 1: cut in) */
+        for (i = 0; i < 8; i++) {
+            q[2 * i] = cx + (f32)B[2 * i] * (B[2 * i] * B[2 * i] > 1 ? w * 0.5f : (w - c));
+            q[2 * i + 1] = cy + (f32)B[2 * i + 1] * (B[2 * i + 1] * B[2 * i + 1] > 1 ? h * 0.5f : (h - c));
         }
-        g = g * M.av * lev + (M.af + M.ah * lev) * (j > 8 ? 0.6f : 0.15f);
-        c[j] = (uint8_t)(sat(g) * 255.0f);
+        quad_poly(q, 8, 0.1f);
+        g_line(cx, cy - h, cx, cy - h - r * 0.3f, 2.0f, 1.0f);
+        g_glow(cx, cy - h - r * 0.34f, 6.0f + 12.0f * on, 0.4f + 0.6f * on);
+        g_disc(cx, cy - h - r * 0.34f, 3.5f, 1.0f);
+        g_rect(cx - w - 7.0f, cy - r * 0.22f, 6.0f, r * 0.44f, 0.6f);
+        g_rect(cx + w + 1.0f, cy - r * 0.22f, 6.0f, r * 0.44f, 0.6f);
+        for (i = -1; i <= 1; i += 2) {
+            f32 ex = cx + (f32)i * r * 0.42f, ey = cy - r * 0.3f, s = r * 0.13f * (1.0f - lid) + 1.0f;
+            g_rect(ex - r * 0.19f, ey - s, r * 0.38f, 2.0f * s, 0.9f);
+            g_mode(G_PAINT);                     /* a scan going across each */
+            g_rect(ex - r * 0.19f + fractf(t * 0.6f) * r * 0.32f, ey - s, 2.0f, 2.0f * s, 0.0f);
+            g_mode(G_MAX);
+        }
+        g_mode(G_PAINT);
+        g_rect(mx0 - 4.0f, my - hm - 4.0f, r * 1.24f + 8.0f, 2.0f * hm + 8.0f, 0.0f);
+        g_mode(G_MAX);
+        q[0] = mx0 - 4.0f; q[1] = my - hm - 4.0f; q[2] = mx0 + r * 1.24f + 4.0f; q[3] = q[1];
+        q[4] = q[2]; q[5] = my + hm + 4.0f; q[6] = q[0]; q[7] = q[5];
+        g_poly(q, 4, 1, 1.5f, 0.6f);
+        P.mx = cx; P.my = my;
+        for (j = 0; j < 12; j++) {
+            f32 hz = 200.0f * exp2fx((f32)j * 0.42f), g, hh;
+            g = (bump(hz, sc) * M.av + (M.af + M.ah) * (j > 7 ? 0.7f : 0.1f)) * on;
+            hh = hm * (0.07f + 0.93f * sat(g * (1.0f - P.shut))) + 0.04f * hm * sin_turns(t * 0.3f + (f32)j * 0.08f);
+            g_rect(mx0 + (f32)j * r * 0.105f, my - hh, r * 0.07f, 2.0f * hh, 1.0f);
+        }
+        break;
     }
-    (void)vis;
-}
-
-/* a stretch of ribbon from x0 to x1: soft (bright on its axis, nothing at its edges) or crisp */
-static void ribbon(f32 x0, f32 y0, f32 x1, f32 y1, f32 w0, f32 w1, f32 a, int crisp)
-{
-    f32 q[8];
-    q[0] = x0; q[1] = y0 - 0.5f * w0; q[2] = x1 + 0.6f; q[3] = y1 - 0.5f * w1;
-    q[4] = x1 + 0.6f; q[5] = y1; q[6] = x0; q[7] = y0;
-    if (a < 0.01f)
-        return;
-    if (crisp) {
-        q[5] = y1 + 0.5f * w1; q[7] = y0 + 0.5f * w0;
-        g_fill(q, 4, a);
-        return;
+    case 1:                                      /* CHOIR: three heads in a row, the middle one in front */
+        for (i = 0; i < 3; i++) {
+            int o = i == 2 ? 0 : i ? 1 : -1;
+            f32 rr = r * (i == 2 ? 0.72f : 0.55f), x = cx + (f32)o * r * 1.05f;
+            f32 y = cy + (i == 2 ? 0.0f : r * 0.3f) + 2.5f * sin_turns(t * 0.45f + (f32)i * 0.33f);
+            g_mode(G_PAINT);
+            g_disc(x, y, rr + 3.0f, 0.0f);
+            g_disc(x, y, rr, 0.1f);
+            g_mode(G_MAX);
+            g_ring(x, y, rr, 2.4f, 1.0f);
+            g_arc(x, y, rr * 0.78f, 0.6f, 0.9f, 2.0f, 0.55f);
+            for (j = -1; j <= 1; j += 2) {
+                g_arc(x + (f32)j * rr * 0.38f, y - rr * 0.08f, rr * 0.15f, 0.5f, 1.0f, 2.0f, 1.0f);
+                g_disc(x + (f32)j * rr * 0.56f, y + rr * 0.18f, rr * 0.1f, 0.25f);
+            }
+            for (j = 0; j < 7; j++)
+                g_ring(x + ((f32)j - 3.0f) * rr * 0.28f, y + rr * 1.06f, rr * 0.16f, 1.8f, 0.7f);
+            mouth(x, y + rr * 0.45f, rr * 0.3f, rr * 0.4f, 1.0f, 0.8f + 0.2f * sin_turns(t * 0.7f + (f32)i * 0.4f));
+        }
+        P.mx = cx;
+        P.my = cy + r * 0.28f;
+        break;
+    case 2:                                      /* TALK: a face, front on */
+        g_ellipse(cx, cy, r * 0.8f, r, 0.0f, 0.08f);
+        g_ellipse(cx, cy, r * 0.8f, r, 2.5f, 1.0f);
+        g_arc(cx, cy + r * 0.05f, r * 0.82f, 0.6f, 0.9f, 3.0f, 1.0f);
+        g_arc(cx + r * 0.15f, cy - r * 1.02f, r * 0.18f, 0.25f, 0.75f, 2.0f, 1.0f);
+        for (i = -1; i <= 1; i += 2) {
+            g_arc(cx + (f32)i * r * 0.32f, cy - r * 0.2f - on * r * 0.1f, r * 0.24f, 0.6f, 0.9f, 2.2f, 1.0f);
+            eye(cx + (f32)i * r * 0.32f, cy - r * 0.2f, r * 0.15f, lid, look, 1);
+            g_arc(cx + (f32)i * r * 0.8f, cy, r * 0.12f, i > 0 ? 0.75f : 0.25f, i > 0 ? 1.25f : 0.75f, 2.0f, 1.0f);
+        }
+        g_line(cx, cy - r * 0.1f, cx - r * 0.08f, cy + r * 0.14f, 2.0f, 0.6f);
+        g_line(cx - r * 0.08f, cy + r * 0.14f, cx + r * 0.05f, cy + r * 0.15f, 2.0f, 0.6f);
+        mouth(cx, cy + r * 0.48f, r * 0.34f, r * 0.3f, 1.0f, 1.0f);
+        break;
+    case 3: {                                    /* WHISP: a ghost, its tail torn */
+        f32 x = cx + 6.0f * sin_turns(t * 0.21f), y = cy + 4.0f * sin_turns(t * 0.33f);
+        g_glow(x, y, r * 1.7f, 0.22f + 0.2f * on);
+        g_disc(x, y - r * 0.15f, r * 0.8f, 0.24f);
+        g_rect(x - r * 0.8f, y - r * 0.15f, r * 1.6f, r * 0.8f, 0.24f);
+        g_arc(x, y - r * 0.15f, r * 0.8f, 0.5f, 1.0f, 2.2f, 0.8f);
+        g_line(x - r * 0.8f, y - r * 0.15f, x - r * 0.8f, y + r * 0.7f, 2.2f, 0.8f);
+        g_line(x + r * 0.8f, y - r * 0.15f, x + r * 0.8f, y + r * 0.7f, 2.2f, 0.8f);
+        for (i = 0; i < 4; i++) {                /* the hem, waving */
+            f32 hx = x - r * 0.6f + (f32)i * r * 0.4f, hy = y + r * 0.66f + 3.0f * sin_turns(t * 0.5f + (f32)i * 0.25f);
+            g_disc(hx, hy, r * 0.2f, 0.24f);
+            g_arc(hx, hy, r * 0.2f, 0.0f, 0.5f, 2.2f, 0.8f);
+        }
+        g_mode(G_PAINT);
+        for (i = -1; i <= 1; i += 2)
+            g_ellipse(x + (f32)i * r * 0.3f, y - r * 0.22f, r * 0.14f, r * 0.2f * (1.0f - 0.7f * lid) + 1.0f, 0.0f, 0.0f);
+        g_mode(G_MAX);
+        mouth(x, y + r * 0.35f, r * 0.26f, r * 0.34f, 0.9f, 1.0f);
+        break;
     }
-    g_fillv(q, 4, minf(q[1], q[3]), 0.0f, maxf(y0, y1), a);
-    q[1] = y0 + 0.5f * w0; q[3] = y1 + 0.5f * w1;
-    g_fillv(q, 4, minf(y0, y1), a, maxf(q[1], q[3]), 0.0f);
-}
-
-static void grain(f32 x, f32 y, f32 spread, int n, f32 a, uint32_t *s)
-{
-    int g;
-    for (g = 0; g < n; g++)
-        g_rect(x + rng_f(s) * 3.0f, y + rng_s(s) * spread, 1.0f, 1.0f, a * (0.35f + 0.65f * rng_f(s)));
+    case 4: {                                    /* CHIP: a head of pixels */
+        f32 b = (f32)(int)(r * 0.15f + 0.5f), x0 = (f32)(int)((cx - 6.0f * b) / b) * b, y0 = (f32)(int)((cy - 6.0f * b) / b) * b;
+        int mw = 2 + (int)(4.0f * P.wide + 0.5f), mh = (int)(0.5f + 3.5f * P.open * (1.0f - P.shut));
+        g_rect(x0, y0, 12.0f * b, 12.0f * b, 0.08f);
+        for (i = 0; i < 12; i++) {
+            g_rect(x0 + (f32)i * b, y0, b - 1.0f, b - 1.0f, 1.0f);
+            g_rect(x0 + (f32)i * b, y0 + 11.0f * b, b - 1.0f, b - 1.0f, 1.0f);
+            g_rect(x0, y0 + (f32)i * b, b - 1.0f, b - 1.0f, 1.0f);
+            g_rect(x0 + 11.0f * b, y0 + (f32)i * b, b - 1.0f, b - 1.0f, 1.0f);
+        }
+        for (i = 0; i < 2; i++)
+            g_rect(x0 + (f32)(3 + 4 * i) * b, y0 + (lid > 0.5f ? 4.0f : 3.0f) * b, 2.0f * b - 1.0f, (lid > 0.5f ? 1.0f : 2.0f) * b - 1.0f, 1.0f);
+        g_rect(x0 + 6.0f * b, y0 - b, b - 1.0f, b - 1.0f, 0.4f + 0.6f * on);
+        g_rect(x0 + 6.0f * b, y0 - 2.0f * b, b - 1.0f, b - 1.0f, on);
+        for (i = 0; i < mw; i++)
+            for (j = 0; j <= mh; j++)
+                if (!mh || j == 0 || j == mh || i == 0 || i == mw - 1)
+                    g_rect(x0 + (f32)(6 - (mw + 1) / 2 + i) * b, y0 + (f32)(8 - mh / 2 + j) * b, b - 1.0f, b - 1.0f, 1.0f);
+        P.mx = x0 + 6.0f * b;
+        P.my = y0 + 8.0f * b;
+        break;
+    }
+    case 5:                                      /* MONK: a hood, a face in its shadow, the drone in rings */
+        for (i = 0; i <= 8; i++) {               /* (a dome, a little pointed) */
+            f32 u = (f32)i * (0.25f / 8.0f);
+            q[2 * i] = cx - r * sin_turns(u);
+            q[2 * i + 1] = cy - r * 1.2f + r * 2.15f * (1.0f - cos_turns(u)) - (i ? 0.0f : r * 0.12f);
+            q[34 - 2 * i] = cx + r * sin_turns(u);
+            q[35 - 2 * i] = q[2 * i + 1];
+        }
+        quad_poly(q, 17, 0.16f);
+        g_mode(G_PAINT);
+        g_ellipse(cx, cy + r * 0.12f, r * 0.55f, r * 0.7f, 0.0f, 0.0f);
+        g_mode(G_MAX);
+        g_ellipse(cx, cy + r * 0.12f, r * 0.55f, r * 0.7f, 1.8f, 0.5f);
+        g_glow(cx, cy + r * 0.42f, r * 0.5f, 0.3f * on);
+        for (i = -1; i <= 1; i += 2)
+            g_arc(cx + (f32)i * r * 0.22f, cy - r * 0.05f, r * 0.11f, 0.0f, 0.5f, 1.8f, 0.55f);
+        mouth(cx, cy + r * 0.42f, r * 0.22f, r * 0.26f, 0.95f, 1.0f);
+        for (i = 0; i < 3; i++) {
+            f32 ph = fractf(t * 0.4f + (f32)i * 0.333f);
+            g_ring(cx, cy + r * 0.42f, r * 0.2f + ph * r * 1.4f, 1.5f, (1.0f - ph) * on * 0.8f);
+        }
+        break;
+    case 6: {                                    /* DIVA: the hair, the lashes, the vibrato in her head */
+        f32 x = cx + 3.0f * on * sin_turns(P.wob);
+        for (i = 0; i < 9; i++) {
+            f32 u = 0.5f + (f32)i * 0.0625f, hx = x + cos_turns(u) * r * 0.92f, hy = cy - r * 0.12f + sin_turns(u) * r * 0.95f;
+            g_disc(hx, hy, r * 0.27f, 0.16f);
+            g_ring(hx, hy, r * 0.27f, 1.8f, 0.8f);
+        }
+        g_ring(x, cy - r * 1.18f, r * 0.26f, 2.2f, 1.0f);
+        g_mode(G_PAINT);
+        g_ellipse(x, cy, r * 0.72f, r * 0.9f, 0.0f, 0.1f);
+        g_mode(G_MAX);
+        g_ellipse(x, cy, r * 0.72f, r * 0.9f, 2.4f, 1.0f);
+        for (i = -1; i <= 1; i += 2) {
+            f32 ex = x + (f32)i * r * 0.3f, ey = cy - r * 0.15f, sw = 4.0f * sin_turns(P.wob * 0.5f + (f32)i * 0.1f);
+            if (on > 0.1f)
+                lash_eye(ex, ey, r * 0.14f, 1.0f);
+            else
+                eye(ex, ey, r * 0.14f, lid, look, 1);
+            g_arc(ex, ey - r * 0.04f, r * 0.2f, 0.6f, 0.9f, 1.8f, 0.9f);
+            g_line(x + (f32)i * r * 0.72f, cy + r * 0.1f, x + (f32)i * r * 0.72f + sw, cy + r * 0.32f, 1.5f, 0.8f);
+            g_disc(x + (f32)i * r * 0.72f + sw, cy + r * 0.36f, 3.5f, 1.0f);
+        }
+        g_disc(x + r * 0.32f, cy + r * 0.28f, 2.0f, 1.0f);
+        mouth(x, cy + r * 0.45f, r * 0.36f, r * 0.42f, 1.0f, 1.0f);
+        for (i = 0; i < 3; i++) {                /* and notes going up */
+            f32 ph = fractf(t * 0.22f + (f32)i * 0.333f), nx = x + r * (0.95f + 0.25f * sin_turns(ph + (f32)i * 0.3f)) * (i == 1 ? -1.0f : 1.0f);
+            f32 ny = cy + r * 0.2f - ph * r * 1.5f, a = sin_turns(ph * 0.5f) * on;
+            g_disc(nx, ny, 3.4f, a);
+            g_line(nx + 3.0f, ny, nx + 3.0f, ny - 13.0f, 1.6f, a);
+            g_line(nx + 3.0f, ny - 13.0f, nx + 8.0f, ny - 9.0f, 1.6f, a);
+        }
+        break;
+    }
+    default:                                     /* ALIEN: a great head, eyes like seeds, the voice rung in halos */
+        for (i = 0; i < 20; i++) {
+            f32 u = (f32)i * 0.05f, s = sin_turns(u), wf = s < 0.0f ? 0.72f - 0.38f * s : 0.72f - 0.4f * s;
+            q[2 * i] = cx + cos_turns(u) * r * wf;
+            q[2 * i + 1] = cy + s * r * 1.02f;
+        }
+        quad_poly(q, 20, 0.12f);
+        for (i = -1; i <= 1; i += 2) {
+            f32 ex = cx + (f32)i * r * 0.32f, ey = cy - r * 0.02f, rot = (f32)i * -0.07f;
+            for (j = 0; j < 8; j++) {
+                f32 u = (f32)j * 0.125f, px = cos_turns(u) * r * 0.27f, py = sin_turns(u) * r * 0.13f * (1.0f - 0.8f * lid);
+                q[2 * j] = ex + px * cos_turns(rot) - py * sin_turns(rot);
+                q[2 * j + 1] = ey + px * sin_turns(rot) + py * cos_turns(rot);
+            }
+            g_fill(q, 8, 1.0f);
+            g_mode(G_PAINT);
+            g_disc(ex + (f32)i * r * 0.07f, ey - r * 0.03f + look * r * 0.03f, r * 0.04f, 0.0f);
+            g_mode(G_MAX);
+            g_line(cx + (f32)i * r * 0.28f, cy - r * 0.95f, cx + (f32)i * r * 0.55f, cy - r * 1.35f, 1.8f, 1.0f);
+            g_glow(cx + (f32)i * r * 0.55f, cy - r * 1.35f, 4.0f + 10.0f * on, 0.5f + 0.5f * on);
+        }
+        mouth(cx, cy + r * 0.62f, r * 0.12f * (1.0f + 0.35f * sin_turns(M.vib * 9.0f)), r * 0.16f, 1.0f, 1.0f);
+        for (i = 0; i < 2; i++) {
+            f32 ph = fractf(t * 0.5f + (f32)i * 0.5f);
+            g_ellipse(cx, cy - r * 1.15f - ph * r * 0.2f, r * (0.4f + 0.5f * ph), r * (0.08f + 0.08f * ph), 1.5f, (1.0f - ph) * on * 0.8f);
+        }
+        break;
+    }
 }
 
 static SMALL void blab_draw(const Vis *vis)
 {
     f32 sc = M.scale * (M.algo == 5 ? 0.86f : M.algo == 6 ? 1.16f : M.algo == 7 ? 1.45f : 1.0f);
-    f32 lev = sat(vis->level * 4.0f), air = vis->k[3], t = vis->t, dt = vis->dt, mid = 0.5f * (PY0 + PY1);
-    int i, j, k, ph = M.phrase, cur = M.shown, style = vis->algo_t < 0.5f ? vis->algo_prev : vis->algo;
-    f32 fade_in = absf(2.0f * vis->algo_t - 1.0f);
+    f32 lev = sat(vis->level * 4.0f), on = sat(lev * 3.0f), t = vis->t, dt = vis->dt, air = vis->k[3];
+    f32 fade_in = absf(2.0f * vis->algo_t - 1.0f), k, r, cx = 120.0f, cy, lid, look;
+    int i, ph = M.phrase, cur = M.shown, style = vis->algo_t < 0.5f ? vis->algo_prev : vis->algo, n = imax(1, nsyls(ph));
+    int wr = blab_writing;
+    const Syl *nx = &syls(ph)[M.at % n];
     if (!P.inited || vis->fresh) {
         uint8_t *z = (uint8_t *)&P;
         for (i = 0; i < (int)sizeof P; i++) z[i] = 0;
         P.inited = 1;
         P.seen = cur;
     }
-    if (cur != P.seen) {                         /* a new syllable: the big word jumps */
+    if (cur != P.seen) {                         /* a new syllable: the head nods */
         P.seen = cur;
         P.popv += 3.0f;
     }
-    spring_z(&P.pop, &P.popv, 0.0f, 18.0f, 0.35f, dt);
-    P.wob += dt * (style == 6 ? 5.6f : 0.0f);
-    P.acc += dt * (34.0f + 40.0f * (1.0f - vis->k[2]));       /* snappy scrolls fast, a drawl slow */
-    k = 0;
-    while (P.acc >= 1.0f && k++ < 6) {
-        P.acc -= 1.0f;
-        column(vis, sc, lev);
+    spring_z(&P.pop, &P.popv, 0.0f, 16.0f, 0.3f, dt);
+    P.wob += dt * 5.6f;
+    P.tflash += dt;
+
+    /* the mouth: where the voice is, or with nothing sounding, the next vowel, barely open */
+    {
+        int q = M.qi < M.qn ? M.q[M.qi] : -1;
+        const Ph *v = &PH[nx->ph[nx->nuc]];
+        f32 o, w, sh = 0.0f, bi = 0.0f;
+        if (on > 0.03f) {
+            o = sat((M.f[0] - 230.0f) * (1.0f / 520.0f)) * sat(M.av * 1.4f) * on;
+            w = sat((M.f[1] - 850.0f) * (1.0f / 1250.0f));
+            sh = q == M_ || q == CL || q == VCL || q == PB ? 1.0f : 0.0f;
+            bi = q == F_ || q == V_ ? 1.0f : 0.0f;
+        } else {
+            o = 0.05f + 0.04f * sin_turns(t * 0.3f);
+            w = sat(((f32)v->f2 * 20.0f - 850.0f) * (1.0f / 1250.0f));
+        }
+        k = 1.0f - exp2fx(-dt * (16.0f + 30.0f * (1.0f - vis->k[2])));
+        P.open += (o - P.open) * k;
+        P.wide += (w - P.wide) * k;
+        P.shut += (sh - P.shut) * minf(1.0f, k * 2.0f);
+        P.bite += (bi - P.bite) * k;
+        P.hiss += (sat(M.af * 1.3f) * on - P.hiss) * k;
     }
-    if (P.acc >= 1.0f) P.acc = 0.0f;
+    P.blink -= dt;
+    if (P.blink < -0.16f)
+        P.blink = 2.0f + 3.0f * rng_f(vis->rng);
+    lid = maxf(P.blink < 0.0f ? 1.0f - absf(P.blink + 0.08f) * 12.0f : 0.0f, vis->k[2] * 0.55f);
+    look = clampf((60.0f - vis->hand_pitch) * (1.0f / 18.0f), -1.0f, 1.0f);
 
     g_clear();
     g_mode(G_MAX);
     g_dim(0.35f + 0.65f * fade_in);
+    r = 66.0f - 20.0f * vis->k[1];               /* MOUTH: a giant's head to a chipmunk's */
+    cy = 84.0f + 2.0f * sin_turns(t * (0.28f + 0.2f * vis->k[1])) - 5.0f * P.pop;
+    if (wr) {
+        r *= 0.55f;
+        cy = 58.0f;
+    }
+    head(style, cx, cy, r * (1.0f + 0.03f * P.pop), lid, on, t, look, sc);
 
-    /* the next vowel, ruled faintly across the print: MOUTH moves the rules, AIR frays them */
-    {
-        const Syl *y = &syl[ph][M.at % (nsyl[ph] ? nsyl[ph] : 1)];
-        const Ph *v = &PH[y->ph[y->nuc]];
-        f32 nf[3], quiet = 1.0f - sat(lev * 4.0f);
-        nf[0] = (f32)v->f1 * 10.0f; nf[1] = (f32)v->f2 * 20.0f; nf[2] = (f32)v->f3 * 20.0f;
-        for (j = 0; j < 3 && quiet > 0.02f; j++) {
-            f32 yy = fy(nf[j] * sc), xx;
-            uint32_t s = 0x5EEDu + (uint32_t)j * 131u + (uint32_t)(t * 8.0f);
-            if (style == 0)
-                yy = PY1 - 8.6f * (f32)(1 + (int)((PY1 - yy) / 8.6f)) + 3.5f;
-            g_line(0.0f, yy, 226.0f, yy, 1.4f, quiet * 0.13f * (1.0f - 0.2f * (f32)j));
-            xx = fractf(t * 0.12f + (f32)j * 0.31f) * 300.0f - 40.0f;   /* a swell travels along each rule */
-            g_beam(xx - 40.0f, yy, xx + 40.0f, yy, 1.0f, 3.0f + 2.0f * air, 0.0f, quiet * 0.35f, 1.0f);
-            if (air > 0.05f)
-                grain(xx - 30.0f + rng_f(&s) * 60.0f, yy, 2.0f + 8.0f * air, (int)(air * 10.0f), quiet * 0.4f, &s);
+    /* breath: out of the mouth with the hiss, and with AIR always */
+    P.spawn += dt * (P.hiss * 26.0f + air * air * 7.0f + (style == 3 ? 5.0f * on : 0.0f));
+    for (i = 0; i < NPUFF; i++) {
+        f32 *p = P.puff[i];
+        if (p[2] <= 0.0f && P.spawn >= 1.0f) {
+            P.spawn -= 1.0f;
+            p[0] = P.mx + rng_s(vis->rng) * 4.0f;
+            p[1] = P.my;
+            p[2] = 0.001f;
+            p[3] = 2.0f + 3.0f * rng_f(vis->rng);
+        }
+        if (p[2] > 0.0f) {
+            f32 a = (1.0f - p[2]) * (0.3f + 0.5f * air);
+            p[2] += dt * 0.9f;
+            p[0] += dt * 22.0f * sin_turns(p[3] + p[2]);
+            p[1] -= dt * 30.0f;
+            if (p[2] >= 1.0f) p[2] = 0.0f;
+            else if (style == 3) g_glow(p[0], p[1], p[3] * 3.0f + p[2] * 10.0f, a);
+            else g_ring(p[0], p[1], p[3] + p[2] * 9.0f, 1.3f, a);
         }
     }
-
-    /* the print, oldest on the left */
-    for (k = 0; k < NH - 1; k++) {
-        int c0 = (P.head + 1 + k) % NH, c1 = (c0 + 1) % NH;
-        f32 x0 = (f32)k * 3.0f, x1 = x0 + 3.0f, age = (f32)k / (f32)(NH - 1), fade = 0.2f + 0.8f * age * age;
-        f32 a0 = (f32)P.a[c0] * (1.0f / 255.0f), a1 = (f32)P.a[c1] * (1.0f / 255.0f);
-        f32 h0 = (f32)P.h[c0] * (1.0f / 255.0f);
-        uint32_t s = (uint32_t)c0 * 2654435761u ^ 0x9E3779B9u;
-        if (style == 0) {                        /* ROBOT: sixteen rows of lamps */
-            for (j = 0; j < NB; j++) {
-                f32 v = (f32)P.band[c0][j] * (1.0f / 255.0f);
-                if (v > 0.04f)
-                    g_rect(x0, PY1 - 8.6f * (f32)(j + 1), 2.0f, 7.0f, fade * minf(1.0f, v * 1.3f));
-            }
-            continue;
-        }
-        if (style == 3 || style == 4) {          /* WHISP: grain; CHIP: blocks on a grid */
-            for (j = 0; j < 3; j++) {
-                f32 y = (f32)P.fy[c0][j], w = 1.0f - 0.25f * (f32)j;
-                if (a0 + h0 < 0.03f) continue;
-                if (style == 3)
-                    grain(x0, y, 4.0f + 10.0f * maxf(a0, h0), (int)(10.0f * maxf(a0, h0) * w) + 1, fade * w, &s);
-                else if ((k & 1) == 0 && a0 > 0.03f)
-                    g_rect((f32)((int)x0 / 6 * 6), (f32)((int)y / 6 * 6), 5.0f, 5.0f + (a0 > 0.5f ? 6.0f : 0.0f), fade * minf(1.0f, a0 * 1.6f) * w);
-            }
-        } else {
-            for (j = 0; j < 3; j++) {
-                f32 y0 = (f32)P.fy[c0][j], y1 = (f32)P.fy[c1][j], w = 1.0f - 0.25f * (f32)j, wd0, wd1, o;
-                if (a0 + a1 < 0.03f)
-                    continue;
-                if (style == 6) {                /* DIVA: the line trembles with her vibrato */
-                    o = 3.0f * a0 * sin_turns(P.wob + (f32)k * 0.09f);
-                    y0 += o;
-                    y1 += 3.0f * a1 * sin_turns(P.wob + (f32)(k + 1) * 0.09f);
-                }
-                wd0 = 1.5f + 11.0f * a0 * w;
-                wd1 = 1.5f + 11.0f * a1 * w;
-                if (style == 1) {                /* CHOIR: three voices, a little apart */
-                    ribbon(x0, y0 - 5.0f, x1, y1 - 5.0f, wd0 * 0.6f, wd1 * 0.6f, fade * a0 * 0.55f * w, 0);
-                    ribbon(x0, y0 + 5.0f, x1, y1 + 5.0f, wd0 * 0.6f, wd1 * 0.6f, fade * a0 * 0.55f * w, 0);
-                }
-                if (style == 5 && j == 1)       /* MONK: the whistle above the drone, a hard thin line */
-                    g_line(x0, y0, x1, y1, 1.2f, fade * minf(1.0f, a0 * 2.0f));
-                else
-                    ribbon(x0, y0, x1, y1, wd0, wd1, fade * minf(1.0f, a0 * 1.5f) * w, style == 2);
-                if (style == 7)                  /* ALIEN: its print comes back upside down */
-                    ribbon(x0, 2.0f * mid - y0, x1, 2.0f * mid - y1, wd0 * 0.6f, wd1 * 0.6f, fade * a0 * 0.6f * w, 0);
-            }
-        }
-        if (h0 > 0.04f)                          /* hiss: grain around its centre */
-            grain(x0, (f32)P.hy[c0], 18.0f, (int)(h0 * 9.0f) + 1, fade * 0.9f, &s);
-        if (air > 0.05f && a0 > 0.05f)           /* AIR: breath on everything */
-            grain(x0, (f32)P.fy[c0][(k >> 1) % 3], 14.0f, (int)(air * air * 6.0f * a0) + 1, fade * 0.5f, &s);
-    }
-
-    /* the mouth now, at the right edge: where it is, or with nothing sounding, the next vowel waiting */
-    {
-        const Syl *y = &syl[ph][(cur < 0 ? M.at : M.at) % (nsyl[ph] ? nsyl[ph] : 1)];
-        const Ph *v = &PH[y->ph[y->nuc]];
-        f32 nf[3], breath = 0.5f + 0.5f * sin_turns(t * 0.35f), on = sat(lev * 3.0f);
-        nf[0] = (f32)v->f1 * 10.0f; nf[1] = (f32)v->f2 * 20.0f; nf[2] = (f32)v->f3 * 20.0f;
-        for (j = 0; j < 3; j++) {
-            f32 yy = lerpf(fy(nf[j] * sc), fy(M.f[j] * sc), on), ww = 1.0f - 0.25f * (f32)j;
-            uint32_t s = 0xB1ABu + (uint32_t)j * 977u + (uint32_t)(t * 12.0f);
-            if (style == 0)
-                yy = PY1 - 8.6f * (f32)(1 + (int)((PY1 - yy) / 8.6f)) + 3.5f;
-            g_line(230.0f, yy, 238.0f, yy, 2.0f + 3.0f * on, (0.25f + 0.2f * breath + 0.55f * on) * ww);
-            if (air > 0.05f)
-                grain(222.0f, yy, 6.0f + 8.0f * air, (int)(air * 8.0f), 0.3f + 0.3f * breath, &s);
-        }
-    }
-
-    /* the words */
+    if (P.spawn > 1.0f) P.spawn = 1.0f;
     g_dim(1.0f);
+
+    if (wr) {
+        /* WRITE: what is written, and the keys with their letters */
+        char ch[2] = {0, 0};
+        f32 size = 16.0f, w = g_text_w(st.words, size), x;
+        int wi = 0, key;
+        if (w > 224.0f) { size *= 224.0f / w; w = 224.0f; }
+        if (st.words[0])
+            g_text(120.0f, 116.0f, st.words, size, 2.0f, 1.0f, 1);
+        else
+            g_text(120.0f, 118.0f, "PLAY A KEY: A TO Z", 11.0f, 1.4f, 0.4f + 0.2f * sin_turns(t * 0.7f), 1);
+        if (fractf(t * 1.6f) < 0.6f)
+            g_rect(120.0f + 0.5f * w + 2.0f, 114.0f, 2.0f, size + 4.0f, 1.0f);
+        for (key = 0; key < 27; key++) {         /* white keys first, then the black over them */
+            int nn = (53 + key) % 12;
+            f32 lit = key == typed_key ? sat(1.0f - P.tflash * 2.5f) : 0.0f;
+            if (nn == 1 || nn == 3 || nn == 6 || nn == 8 || nn == 10) continue;
+            x = (f32)wi * 15.0f;
+            ch[0] = key == 26 ? '_' : (char)('A' + key);
+            g_rect(x + 1.0f, 150.0f, 13.0f, 88.0f, 0.12f + 0.85f * lit);
+            g_mode(lit > 0.5f ? G_PAINT : G_MAX);
+            g_text(x + 7.5f, 222.0f, ch, 10.0f, 1.5f, lit > 0.5f ? 0.0f : 1.0f, 1);
+            g_mode(G_MAX);
+            wi++;
+        }
+        for (key = 0, wi = 0; key < 27; key++) {
+            int nn = (53 + key) % 12;
+            f32 lit = key == typed_key ? sat(1.0f - P.tflash * 2.5f) : 0.0f;
+            if (!(nn == 1 || nn == 3 || nn == 6 || nn == 8 || nn == 10)) { wi++; continue; }
+            x = (f32)wi * 15.0f - 5.0f;
+            ch[0] = (char)('A' + key);
+            g_mode(G_PAINT);
+            g_rect(x - 1.0f, 150.0f, 12.0f, 52.0f, 0.0f);
+            g_mode(G_MAX);
+            g_rect(x, 150.0f, 10.0f, 51.0f, 0.3f + 0.65f * lit);
+            g_text(x + 5.0f, 188.0f, ch, 8.5f, 1.3f, 1.0f, 1);
+        }
+        return;
+    }
+
+    /* the words, along the bottom: the phrase, its syllables lit as far as it has sung */
     {
-        const char *s = PHRASE[ph].show;
+        const char *s = ph || st.words[0] ? shows(ph) : "EDIT: WRITE YOUR OWN";
         char seg[24];
-        f32 size = 11.0f, tw = 0.0f, x, big;
-        int sy, n;
-        /* the phrase, its syllables lit as far as it has sung */
-        for (i = 0, n = 0; s[i]; i++)
-            if (s[i] != '-') seg[n < 23 ? n++ : n] = s[i];
-        seg[n < 24 ? n : 23] = 0;
-        tw = g_text_w(PHRASE[ph].show, size);
-        if (tw > 226.0f) size *= 226.0f / tw;
-        x = 120.0f - 0.5f * g_text_w(PHRASE[ph].show, size);
+        f32 size = 12.0f, tw = g_text_w(s, size), x, big;
+        int sy, e, m, sounding = cur >= 0 && lev > 0.02f, want = sounding ? cur : M.at % n;
+        if (tw > 228.0f) size *= 228.0f / tw;
+        x = 120.0f - 0.5f * g_text_w(s, size);
         for (i = 0, sy = 0; s[i];) {
-            int e = i;
             f32 a;
-            while (s[e] && s[e] != '-' && s[e] != ' ') e++;
-            for (n = 0; n < e - i && n < 23; n++) seg[n] = s[i + n];
-            seg[n] = 0;
-            a = sy == cur ? 1.0f : (cur >= 0 && sy < cur ? 0.55f : 0.22f);
-            g_text(x, 12.0f, seg, size, 1.3f, a, 0);
+            for (e = i; s[e] && s[e] != '-' && s[e] != ' '; e++)
+                ;
+            for (m = 0; m < e - i && m < 23; m++) seg[m] = s[i + m];
+            seg[m] = 0;
+            a = !ph && !st.words[0] ? 0.35f + 0.25f * sin_turns(t * 0.6f) : sy == cur && sounding ? 1.0f : cur >= 0 && sy < cur ? 0.55f : 0.25f;
+            g_text(x, 218.0f, seg, size, 1.4f, a, 0);
             x += g_text_w(seg, size);
             if (s[e] == ' ') x += g_text_w(" ", size);
             if (s[e] == '-') x += g_text_w("-", size) * 0.4f;
             sy++;
             i = s[e] ? e + 1 : e;
         }
-        /* the syllable: sounding, or the one the next key will sing */
-        {
-            int want = cur >= 0 && lev > 0.02f ? cur : M.at % (nsyl[ph] ? nsyl[ph] : 1);
-            for (i = 0, sy = 0, n = 0; s[i]; i++) {
-                if (s[i] == '-' || s[i] == ' ') { sy++; continue; }
-                if (sy == want && n < 23) seg[n++] = s[i];
-            }
-            seg[n] = 0;
-            big = 38.0f * (1.0f + 0.12f * P.pop);
-            tw = g_text_w(seg, big);
-            if (tw > 224.0f) big *= 224.0f / tw;
-            g_text(120.0f, 40.0f - 0.5f * (big - 38.0f), seg, big, 3.4f,
-                   cur >= 0 && lev > 0.02f ? 0.6f + 0.4f * lev : 0.28f + 0.12f * sin_turns(t * 0.7f), 1);
+        /* the syllable sounding, or the one the next key will sing, large above them */
+        for (i = 0, sy = 0, m = 0; s[i]; i++) {
+            if (s[i] == '-' || s[i] == ' ') { sy++; continue; }
+            if (sy == want && m < 23) seg[m++] = s[i];
         }
+        seg[m] = 0;
+        if (!ph && !st.words[0]) { seg[0] = 'L'; seg[1] = 'A'; seg[2] = 0; }
+        big = 30.0f * (1.0f + 0.12f * P.pop);
+        tw = g_text_w(seg, big);
+        if (tw > 224.0f) big *= 224.0f / tw;
+        g_mode(G_PAINT);                         /* (a dark halo keeps it clear of the head) */
+        g_text(120.0f, 172.0f - 0.5f * (big - 30.0f), seg, big, 9.0f, 0.0f, 1);
+        g_mode(G_MAX);
+        g_text(120.0f, 172.0f - 0.5f * (big - 30.0f), seg, big, 3.0f,
+               sounding ? 0.6f + 0.4f * lev : 0.3f + 0.12f * sin_turns(t * 0.7f), 1);
     }
+}
+
+void blab_type(int key)
+{
+    int n = 0;
+    while (n < NWORDS - 1 && st.words[n]) n++;
+    if (key == -2)
+        n = 0;
+    else if (key == -1)
+        n = n ? n - 1 : 0;
+    else if (key >= 0 && n < NWORDS - 1) {
+        char c = key >= 26 ? ' ' : (char)('A' + key);
+        if (c != ' ' || (n && st.words[n - 1] != ' '))
+            st.words[n++] = c;
+        if (key < 26)
+            want_letter = (int8_t)key;
+        typed_key = (int8_t)key;
+        P.tflash = 0.0f;
+    }
+    while (n < NWORDS)
+        st.words[n++] = 0;
+    build_mine();
 }
 
 const InstDef inst_blab = {
@@ -836,11 +1342,12 @@ const InstDef inst_blab = {
     {120, 255, 170},
     {"WORDS", "MOUTH", "DRAWL", "AIR"},
     {"ROBOT", "CHOIR", "TALK", "WHISP", "CHIP", "MONK", "DIVA", "ALIEN"},
-    {{0, 50, 30, 15}, 0, {2, 50, 100, 30}, {0, 40, 0, 0}, {10, 30, 30, 60}, {0, 3, 1, 60}, {0, 0, 0}},
+    {{7, 50, 30, 15}, 0, {2, 50, 100, 30}, {0, 40, 0, 0}, {10, 30, 30, 60}, {0, 3, 1, 60}, {0, 0, 0}},
     0.36f,
     blab_block, blab_note, blab_render, blab_post, blab_draw,
 };
 
 #ifdef BLAB_TOOLS                                /* (the tuning tools: how many keys a phrase takes) */
 int blab_syllables(int p) { if (!nsyl[0]) parse(); return p >= 0 && p < NPHRASE ? nsyl[p] : 0; }
+const char *blab_mine(const char **show, int *n) { *show = mine_show[mcur]; *n = nmine[mcur]; return say; }
 #endif

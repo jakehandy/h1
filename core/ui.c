@@ -21,6 +21,8 @@
  *   PLAY REC   the sequencer. Loop: REC arms a take, or overdubs while it plays. Step: REC is
  *              step-write. REC held clears.
  *   OCT- OCT+  octave; both, back to the middle
+ *   BLAB       EDIT is WRITE: the keys are letters, A to Z from the left and a space at the top; OCT- takes
+ *              the last one back, OCT+ is a space, both clear. EDIT again (or HOME) and the keys sing it.
  */
 #include "internal.h"
 
@@ -234,8 +236,25 @@ static int accel(int enc, int d)
     return d * m;
 }
 
+static int writing(void) { return blab_writing && insts[st.inst] == &inst_blab; }
+
+static void write_mode(int on)
+{
+    if (on == blab_writing)
+        return;
+    if (!on && writing() && st.words[0]) {
+        KNOBS_NOW(st.inst)[0] = 0;               /* done: WORDS goes to your own */
+        knob_touch[0] = 0.0f;
+    }
+    if (!on && insts[st.inst] == &inst_blab)    /* (WRITE shows itself: the keys come up) */
+        toast(st.words[0] ? "YOUR WORDS" : "WRITE OFF", 0, 0, 0, -1);
+    blab_writing = (uint8_t)on;
+    mark_dirty();
+}
+
 static APART void set_instrument(int i)
 {
+    blab_writing = 0;
     int hint = seq.mode == SEQ_LOOP && (seq.loop_state == LOOP_PLAY || seq.loop_state == LOOP_IDLE);
     st.inst = (uint8_t)i;
     eng_post(EV_INST, i);
@@ -259,6 +278,8 @@ static APART void open_page(int pg)
     int i;
     if (page == pg)
         pg = PG_HOME;
+    if (pg != PG_HOME)
+        write_mode(0);
     page = pg;
     page_t = 0.0f;
     if (pg != PG_HOME)
@@ -291,6 +312,11 @@ void h1_key(int key, int down)
         int note = scale_snap(53 + key + 12 * st.octave);
         if (key_down[key])
             return;
+        if (writing()) {                         /* WRITE: a letter, sung at its key */
+            blab_type(key);
+            if (key >= 26)
+                return;
+        }
         note = iclamp(note, 0, 127);
         key_down[key] = 1;
         key_note[key] = (uint8_t)note;
@@ -421,6 +447,7 @@ SMALL void h1_button(int btn, int down)
         if (btn == H1_BTN_SEQ)
             open_page(PG_SEQ);
         if (btn == H1_BTN_HOME) {
+            write_mode(0);
             if (page == PG_HOME)
                 name_t = 0.0f;
             page = PG_HOME;
@@ -433,6 +460,8 @@ SMALL void h1_button(int btn, int down)
         if (btn == H1_BTN_EDIT) {
             if (seq.mode == SEQ_STEP && seq.write && page == PG_HOME)
                 eng_post(EV_STEP_REST, 0);       /* writing steps: a rest */
+            else if (insts[st.inst] == &inst_blab && page == PG_HOME)
+                write_mode(!blab_writing);       /* BLAB: WRITE */
             else {
                 st.hud ^= 1;
                 mark_dirty();
@@ -467,11 +496,14 @@ SMALL void h1_button(int btn, int down)
     case H1_BTN_ARP: open_page(PG_ARP); break;
     case H1_BTN_PLAY: eng_post(EV_PLAY, 0); break;
     case H1_BTN_OCTDN:
-        octave((btn_held & (1u << H1_BTN_OCTUP)) ? 0 : -1);
+    case H1_BTN_OCTUP: {
+        int both = (btn_held & (1u << (btn == H1_BTN_OCTUP ? H1_BTN_OCTDN : H1_BTN_OCTUP))) != 0;
+        if (writing())                           /* WRITE: one back, a space; both, clear */
+            blab_type(both ? -2 : btn == H1_BTN_OCTDN ? -1 : 26);
+        else
+            octave(both ? 0 : btn == H1_BTN_OCTDN ? -1 : 1);
         break;
-    case H1_BTN_OCTUP:
-        octave((btn_held & (1u << H1_BTN_OCTDN)) ? 0 : 1);
-        break;
+    }
     default: break;
     }
 }
@@ -1338,6 +1370,8 @@ const uint16_t *h1_palette(void) { return pal; }
 uint32_t h1_key_leds(void)
 {
     uint32_t m;
+    if (writing())                               /* WRITE: the vowels lit, and the space */
+        return 1u << 0 | 1u << 4 | 1u << 8 | 1u << 14 | 1u << 20 | 1u << 26;
     if (eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
         return m;                                           /* the sequencer has the keys while it runs */
     return eng_sounding_lo();
@@ -1352,7 +1386,7 @@ uint32_t h1_button_leds(void)
         m |= 1u << PAGE_BTN[page];
     if (st.ip[st.inst].arp[0] && (page == PG_ARP || vis.beat < 0.25f))
         m |= 1u << H1_BTN_ARP;
-    if (st.hud) m |= 1u << H1_BTN_EDIT;
+    if (st.hud || (writing() && blink)) m |= 1u << H1_BTN_EDIT;
     if (st.keys[3]) m |= 1u << H1_BTN_SEL;
     if (s == LOOP_PLAY || s == LOOP_DUB || s == LOOP_REC) m |= 1u << H1_BTN_PLAY;
     if (s == LOOP_REC || s == LOOP_DUB || (s == LOOP_ARMED && blink)) m |= 1u << H1_BTN_REC;
