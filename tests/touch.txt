@@ -1,0 +1,55 @@
+# Velocity and pressure from the panel's keys, through fm1-base's sensing (APP_TOUCH, lib/touch.h): the
+# simulator makes the readings a key would give (key K down VEL PRESS), and what h1 plays goes out over USB,
+# so the note-on says the velocity it sounded at and the poly aftertouch the lean.
+wait 600
+out
+# a soft key, a hard one, and one of the top row: a velocity from its probe and, leant on, no aftertouch
+key 7 down 40
+wait 100
+expect_out USB 90 3C 28
+key 7 up
+wait 100
+expect_out USB 80 3C 00
+key 9 down 120
+wait 100
+expect_out USB 90 3E 78
+key 9 up
+wait 100
+expect midi_out 4
+key 22 down 90 60
+wait 600
+expect_out USB 90 4B 59
+key 22 up
+wait 100
+# (two more out, its note-on and note-off: no aftertouch)
+expect midi_out 6
+out
+# Leant on 60 % more than it landed, for two and a half seconds, with h1's own reading (LEAN HELD, the
+# default) and then with fm1-base's (CC 118 below 64: LEAN FADES). 60 % is 76 (4C). The simulator tells the two
+# apart, but backwards from what a device is expected to: it leans its pad relative to fm1-base's own rest, which
+# creeps after the reading, so fm1-base's reading holds at 76 here and h1's, whose rest stays put, climbs on as
+# that pad sinks under it. What this shows is that CC 118 picks a different reading, not which one plays better.
+# How far a real pad drifts under a steady finger only a device can tell.
+key 9 down 100 60
+wait 2500
+expect_out USB 90 3E 64
+expect_out USB A0 3E 61
+key 9 up
+wait 100
+# (its aftertouch back to 0 as it is let go, then the note-off)
+expect_out USB A0 3E 00
+expect_out USB 80 3E 00
+out
+midi B0 76 00
+wait 50
+key 9 down 100 60
+wait 2500
+expect_out USB A0 3E 4C
+expect_no_out USB A0 3E 50
+expect_no_out USB A0 3E 61
+key 9 up
+wait 100
+expect_out USB 80 3E 00
+out
+midi B0 76 7F
+wait 50

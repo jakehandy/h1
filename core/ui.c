@@ -125,6 +125,11 @@ static int layer_rec_was, layers_n;              /* a take going into a layer, a
 static uint32_t enc_ms[H1_NENC];
 static uint8_t key_note[H1_NKEYS];
 static uint8_t key_down[H1_NKEYS];
+static uint8_t key_press[H1_NKEYS];              /* how hard each held key is leant on, 0..127 (h1_key_pressure) */
+static uint8_t key_sent[H1_NKEYS];               /* and what of it last went out as poly aftertouch, when */
+static uint32_t key_sent_ms[H1_NKEYS];
+static uint8_t key_owed[H1_NKEYS];               /* note + 1 a key let go of still owes its aftertouch's 0 (it did not go) */
+static uint8_t poly_dropped;                     /* the port could not send the aftertouch just handed it */
 static uint32_t btn_held;
 static uint32_t btn_ms[H1_NBTN];
 static uint8_t btn_fired[H1_NBTN];
@@ -283,7 +288,45 @@ static void set_seq_mode(int m)
     mark_dirty();
 }
 
-void h1_key(int key, int down)
+/* What a note is leant on, from the panel: the hardest of the keys held on it (a scale can put two keys on
+ * one note) */
+static void note_press(int note)
+{
+    int k, p = 0;
+    for (k = 0; k < H1_NKEYS; k++)
+        if (key_down[k] && key_note[k] == note && key_press[k] > p)
+            p = key_press[k];
+    eng_pressure(note, p);
+}
+
+/* Poly aftertouch out; 0 when the port could not send it (h1_midi_out_dropped), and then it is tried again */
+static int poly_send(int note, int p)
+{
+    if (!eng_midi_fn)
+        return 1;
+    poly_dropped = 0;
+    eng_midi_fn(0xA0u, (uint8_t)note, (uint8_t)p);
+    return !poly_dropped;
+}
+
+void h1_midi_out_dropped(uint8_t status, uint8_t d1, uint8_t d2)
+{
+    (void)d1;
+    (void)d2;
+    if ((status & 0xF0u) == 0xA0u)
+        poly_dropped = 1;
+}
+
+/* the 0s owed by keys let go of while what went out of them was not 0: every frame until they go */
+static void poly_owed(void)
+{
+    int k;
+    for (k = 0; k < H1_NKEYS; k++)
+        if (key_owed[k] && poly_send(key_owed[k] - 1, 0))
+            key_owed[k] = 0;
+}
+
+void h1_key_vel(int key, int down, int vel)
 {
     if (key < 0 || key >= H1_NKEYS)
         return;
@@ -292,25 +335,91 @@ void h1_key(int key, int down)
         if (key_down[key])
             return;
         note = iclamp(note, 0, 127);
+        if (key_owed[key] == note + 1)
+            key_owed[key] = 0;                   /* (the same note again: it starts from none anyway) */
         key_down[key] = 1;
         key_note[key] = (uint8_t)note;
-        eng_post(EV_NOTE_ON, note);
+        key_press[key] = key_sent[key] = 0;
+        note_press(note);
+        eng_post_note(1, note, iclamp(vel, 1, 127), 0);
     } else if (key_down[key]) {
         key_down[key] = 0;
+        /* Its aftertouch back to 0 as it goes, not left to the note-off: with HOLD the note sounds on, and a
+         * computer would go on hearing it leant on. */
+        if (key_sent[key] && !poly_send(key_note[key], 0))
+            key_owed[key] = (uint8_t)(key_note[key] + 1);
+        key_press[key] = key_sent[key] = 0;
+        note_press(key_note[key]);
         eng_post(EV_NOTE_OFF, key_note[key]);
     }
+}
+
+void h1_key(int key, int down) { h1_key_vel(key, down, 127); }
+
+/* A held key leant on. Out as poly aftertouch on its note while the notes going out are the keys' own (not
+ * the arpeggiator's): a move of two or more at most every POLY_MS a key, a move of one (a reading's noise, as
+ * often as not) only once it has stood for POLY_STILL, and the ends at once. Called every frame, what goes
+ * out catches up with where the lean has got to. */
+#define POLY_MS 20u
+#define POLY_STILL 200u
+void h1_key_pressure(int key, int p)
+{
+    uint32_t gap;
+    int d;
+    if (key < 0 || key >= H1_NKEYS || !key_down[key])
+        return;
+    p = iclamp(p, 0, 127);
+    if (p != key_press[key]) {
+        key_press[key] = (uint8_t)p;
+        note_press(key_note[key]);
+    }
+    gap = now - key_sent_ms[key];
+    d = p - key_sent[key];
+    if (eng_midi_fn && d && st.ip[st.inst].arp[0] == 0 &&
+        (!p || p == 127 || ((d > 1 || d < -1) && gap >= POLY_MS) || gap >= POLY_STILL) &&
+        poly_send(key_note[key], p)) {
+        key_sent[key] = (uint8_t)p;              /* (only what went: one that did not is tried again) */
+        key_sent_ms[key] = now;
+    }
+}
+
+/* Where a lean goes on an instrument: one of its four home knobs (1..4, 0 none), and how far a full lean turns
+ * it (-100..100). Saved with the instrument, back to none on its reset. */
+void h1_pressure_route(int inst, int target, int depth)
+{
+    if (inst < 0 || inst >= NINST)
+        return;
+    st.ip[inst].mix[IP_PTO] = (uint8_t)(target >= 1 && target <= 4 ? target : 0);
+    st.ip[inst].mix[IP_PDEPTH] = (uint8_t)(int8_t)iclamp(depth, -100, 100);
+    mark_dirty();
+}
+
+int h1_pressure_routed(int inst, int *depth)
+{
+    if (inst < 0 || inst >= NINST)
+        return 0;
+    if (depth)
+        *depth = (int8_t)st.ip[inst].mix[IP_PDEPTH];
+    return st.ip[inst].mix[IP_PTO];
 }
 
 void h1_midi(uint8_t status, uint8_t d1, uint8_t d2)
 {
     uint8_t type = status & 0xF0u;
-    if (type == 0x90u && d2)
+    if (type == 0x90u && d2) {
+        eng_pressure(d1 & 127, 0);                           /* (a new note starts with no lean) */
         eng_post_note(1, d1 & 127, d2 & 127, 1);             /* with its velocity */
-    else if (type == 0x80u || type == 0x90u)
+    } else if (type == 0x80u || type == 0x90u) {
+        eng_pressure(d1 & 127, 0);
         eng_post_note(0, d1 & 127, 0, 1);
-    else if (type == 0xB0u && d1 == 123)
+    } else if (type == 0xA0u)
+        eng_pressure(d1 & 127, d2 & 127);                    /* poly aftertouch: one note leant on */
+    else if (type == 0xD0u)
+        eng_pressure_all(d1 & 127);                          /* channel pressure: every note played by hand */
+    else if (type == 0xB0u && d1 == 123) {
+        eng_pressure_clear();
         eng_post(EV_PANIC, 1);                               /* (1: it came in over MIDI, and is not sent back) */
-    else if (type == 0xB0u && d1 >= 20 && d1 <= 23) {      /* CC 20-23: the four knobs */
+    } else if (type == 0xB0u && d1 >= 20 && d1 <= 23) {      /* CC 20-23: the four knobs */
         KNOBS_NOW(st.inst)[d1 - 20] = (uint8_t)(((d2 & 127) * 100 + 63) / 127);
         knob_touch[d1 - 20] = 0.0f;
     }
@@ -594,6 +703,7 @@ static void holds(void)
     }
     if ((btn_held & (1u << H1_BTN_HOME)) && !btn_fired[H1_BTN_HOME] && now - btn_ms[H1_BTN_HOME] > 700u) {
         btn_fired[H1_BTN_HOME] = 1;
+        eng_pressure_clear();                    /* (and nothing is leant on, MIDI's channel pressure too) */
         eng_post(EV_PANIC, 0);
         toast("HUSH", 0, 0, 0, -1);
     }
@@ -1122,6 +1232,7 @@ void ui_frame(uint32_t now_ms)
     frame_n++;
     tsec += dt;
     holds();
+    poly_owed();
 
     eng_snapshot(&vis);
     eng_seq_info(&seq);

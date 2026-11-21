@@ -7,6 +7,11 @@
  *   inst N        switch instrument        algo N        set algorithm (via detents)
  *   knob I V      set home knob I to V     enc E D       turn encoder E by D detents
  *   key K 1|0     press or release a key   btn B 1|0     press or release a button
+ *   vkey K VEL    press a key at a velocity, 1..127 (key K 0 lets it go)
+ *   lean K P      lean on held key K, 0..127, from now on (a key let go is back to none)
+ *   leanrun K P MS  run MS milliseconds while the lean on key K goes in a straight line to P
+ *   route T D     the instrument in hand's lean onto home knob T (1..4, 0 none), D -100..100 at a full lean
+ *   midi S A B    a MIDI message in, three bytes in decimal (S 160: poly aftertouch, 208: channel pressure)
  *   master V      the volume knob, 0..1000
  *   run MS        advance MS milliseconds  shot NAME     write OUTDIR/NAME.ppm
  *   wav NAME      start writing audio      bytes         print the present() byte count stats, and what a
@@ -29,6 +34,7 @@ static const char *outdir = ".";
 static uint64_t bytes_sum;
 static uint32_t bytes_max, frames_n;
 static double draw_s, draw_max;
+static int lean_v[H1_NKEYS];                     /* what each key is leant on: given to the core every frame */
 
 static double now_s(void)
 {
@@ -55,6 +61,9 @@ static void run(uint32_t ms)
     uint32_t end = now_ms + ms;
     while (now_ms < end) {
         uint32_t i, b;
+        for (i = 0; i < H1_NKEYS; i++)           /* (as a port does: every frame, for the keys held) */
+            if (lean_v[i] >= 0)
+                h1_key_pressure((int)i, lean_v[i]);
         h1_render(buf, 735);                     /* 1/60 s of audio */
         if (wav) {
             for (i = 0; i < 735 * 2; i++) {
@@ -106,6 +115,9 @@ int main(int argc, char **argv)
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);          /* as the FM-1 does: a denormal costs it nothing */
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
 #endif
+    for (i = 0; i < H1_NKEYS; i++)
+        lean_v[i] = -1;
+    i = 2;
     h1_init(44100);
     run(20);
 #define ARG(n) (i + (n) < argc ? atoi(argv[i + (n)]) : 0)
@@ -115,7 +127,27 @@ int main(int argc, char **argv)
         else if (!strcmp(w, "enc")) { h1_encoder(ARG(1), ARG(2)); i += 3; }
         else if (!strcmp(w, "algo")) { h1_encoder(H1_ENC_ALGO, ARG(1)); i += 2; }
         else if (!strcmp(w, "knob")) { h1_midi(0xB0, (uint8_t)(20 + ARG(1)), (uint8_t)(ARG(2) * 127 / 100)); i += 3; }
-        else if (!strcmp(w, "key")) { h1_key(ARG(1), ARG(2)); i += 3; }
+        else if (!strcmp(w, "key")) {
+            if (!ARG(2) && ARG(1) >= 0 && ARG(1) < H1_NKEYS) lean_v[ARG(1)] = -1;
+            h1_key(ARG(1), ARG(2));
+            i += 3;
+        } else if (!strcmp(w, "vkey")) { h1_key_vel(ARG(1), 1, ARG(2)); i += 3; }
+        else if (!strcmp(w, "lean")) {
+            if (ARG(1) >= 0 && ARG(1) < H1_NKEYS) lean_v[ARG(1)] = ARG(2);
+            i += 3;
+        } else if (!strcmp(w, "leanrun")) {
+            int k = ARG(1), to = ARG(2), ms = ARG(3), t, from;
+            if (k >= 0 && k < H1_NKEYS) {
+                from = lean_v[k] < 0 ? 0 : lean_v[k];
+                for (t = 0; t < ms; t += 17) {
+                    lean_v[k] = from + (to - from) * (t + 17 > ms ? ms : t + 17) / (ms ? ms : 1);
+                    run(17);
+                }
+                lean_v[k] = to;
+            }
+            i += 4;
+        } else if (!strcmp(w, "route")) { h1_pressure_route(h1_instrument(), ARG(1), ARG(2)); i += 3; }
+        else if (!strcmp(w, "midi")) { h1_midi((uint8_t)ARG(1), (uint8_t)ARG(2), (uint8_t)ARG(3)); i += 4; }
         else if (!strcmp(w, "btn")) { h1_button(ARG(1), ARG(2)); i += 3; }
         else if (!strcmp(w, "master")) { h1_master(ARG(1)); i += 2; }
         else if (!strcmp(w, "run")) { run((uint32_t)ARG(1)); i += 2; }

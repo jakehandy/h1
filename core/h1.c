@@ -174,6 +174,8 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
         }
         if (st.ip[i].algo >= NALGOS(i)) st.ip[i].algo = 0;
         if (st.ip[i].mix[IP_CUT] > 100) st.ip[i].mix[IP_CUT] = 0;           /* (not a volume: full, rather than an instrument gone quiet) */
+        if (st.ip[i].mix[IP_PTO] > 4 || (int8_t)st.ip[i].mix[IP_PDEPTH] > 100 || (int8_t)st.ip[i].mix[IP_PDEPTH] < -100)
+            st.ip[i].mix[IP_PTO] = st.ip[i].mix[IP_PDEPTH] = 0;              /* (not a lean: none) */
         for (pg = 1; pg < NPAGE; pg++)
             for (j = 0; j < 4; j++) {
                 uint8_t *v = page_value(pg, j);

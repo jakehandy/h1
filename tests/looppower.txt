@@ -47,9 +47,152 @@ expect peak_db_min -50
 # one that comes back
 tap REC
 wait 200
-strum 0 15 30
-strum 0 15 30
-strum 0 15 30
+# (three strums across the white keys, a key at a time: "strum" sets the keys without the readings that
+# fm1-base's sensing, which h1 plays through, needs)
+key w0 down
+wait 28
+key w0 up
+key w1 down
+wait 28
+key w1 up
+key w2 down
+wait 28
+key w2 up
+key w3 down
+wait 28
+key w3 up
+key w4 down
+wait 28
+key w4 up
+key w5 down
+wait 28
+key w5 up
+key w6 down
+wait 28
+key w6 up
+key w7 down
+wait 28
+key w7 up
+key w8 down
+wait 28
+key w8 up
+key w9 down
+wait 28
+key w9 up
+key w10 down
+wait 28
+key w10 up
+key w11 down
+wait 28
+key w11 up
+key w12 down
+wait 28
+key w12 up
+key w13 down
+wait 28
+key w13 up
+key w14 down
+wait 28
+key w14 up
+key w15 down
+wait 28
+key w15 up
+key w0 down
+wait 28
+key w0 up
+key w1 down
+wait 28
+key w1 up
+key w2 down
+wait 28
+key w2 up
+key w3 down
+wait 28
+key w3 up
+key w4 down
+wait 28
+key w4 up
+key w5 down
+wait 28
+key w5 up
+key w6 down
+wait 28
+key w6 up
+key w7 down
+wait 28
+key w7 up
+key w8 down
+wait 28
+key w8 up
+key w9 down
+wait 28
+key w9 up
+key w10 down
+wait 28
+key w10 up
+key w11 down
+wait 28
+key w11 up
+key w12 down
+wait 28
+key w12 up
+key w13 down
+wait 28
+key w13 up
+key w14 down
+wait 28
+key w14 up
+key w15 down
+wait 28
+key w15 up
+key w0 down
+wait 28
+key w0 up
+key w1 down
+wait 28
+key w1 up
+key w2 down
+wait 28
+key w2 up
+key w3 down
+wait 28
+key w3 up
+key w4 down
+wait 28
+key w4 up
+key w5 down
+wait 28
+key w5 up
+key w6 down
+wait 28
+key w6 up
+key w7 down
+wait 28
+key w7 up
+key w8 down
+wait 28
+key w8 up
+key w9 down
+wait 28
+key w9 up
+key w10 down
+wait 28
+key w10 up
+key w11 down
+wait 28
+key w11 up
+key w12 down
+wait 28
+key w12 up
+key w13 down
+wait 28
+key w13 up
+key w14 down
+wait 28
+key w14 up
+key w15 down
+wait 28
+key w15 up
 wait 300
 tap REC
 # (a save begins a third of a second after the take closes; this one is part-way: its pages begun, no header)
@@ -99,12 +242,111 @@ tap REC
 wait 2000
 tap REC
 wait 200
-strum 0 15 30
-strum 0 15 30
+# (two strums, a key at a time, as above; 30 ms a key, as "strum 0 15 30" had it: each "key" takes 2 ms)
+key w0 down
+wait 26
+key w0 up
+key w1 down
+wait 26
+key w1 up
+key w2 down
+wait 26
+key w2 up
+key w3 down
+wait 26
+key w3 up
+key w4 down
+wait 26
+key w4 up
+key w5 down
+wait 26
+key w5 up
+key w6 down
+wait 26
+key w6 up
+key w7 down
+wait 26
+key w7 up
+key w8 down
+wait 26
+key w8 up
+key w9 down
+wait 26
+key w9 up
+key w10 down
+wait 26
+key w10 up
+key w11 down
+wait 26
+key w11 up
+key w12 down
+wait 26
+key w12 up
+key w13 down
+wait 26
+key w13 up
+key w14 down
+wait 26
+key w14 up
+key w15 down
+wait 26
+key w15 up
+key w0 down
+wait 26
+key w0 up
+key w1 down
+wait 26
+key w1 up
+key w2 down
+wait 26
+key w2 up
+key w3 down
+wait 26
+key w3 up
+key w4 down
+wait 26
+key w4 up
+key w5 down
+wait 26
+key w5 up
+key w6 down
+wait 26
+key w6 up
+key w7 down
+wait 26
+key w7 up
+key w8 down
+wait 26
+key w8 up
+key w9 down
+wait 26
+key w9 up
+key w10 down
+wait 26
+key w10 up
+key w11 down
+wait 26
+key w11 up
+key w12 down
+wait 26
+key w12 up
+key w13 down
+wait 26
+key w13 up
+key w14 down
+wait 26
+key w14 up
+key w15 down
+wait 26
+key w15 up
 wait 300
 tap REC
 wait 250
-tap REC
+# (REC let go and the key at once: a sensed key's note is in the loop a few frames after it lands, and the
+# save this take cuts off is only about three frames long)
+press REC
+wait 60
+release REC
 key 17 down
 wait 200
 key 17 up

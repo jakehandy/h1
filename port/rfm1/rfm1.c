@@ -215,9 +215,13 @@ static void input(void)
         if ((panel.buttons_tap & ~panel.buttons) >> BTN_ID[k] & 1u) tapb |= 1u << k;
     }
     panel.keys_tap = panel.buttons_tap = 0;
-    for (k = 0; k < NKEY; k++)
-        if ((keys ^ keys_was) >> k & 1u)
-            h1_key((int)k, (int)(keys >> k & 1u));
+    for (k = 0; k < NKEY; k++) {
+        uint32_t v = panel.key_vel[k], lean = panel.key_lean[k];
+        if ((keys ^ keys_was) >> k & 1u)         /* at the velocity the simulator gives it (0: none, so full) */
+            h1_key_vel((int)k, (int)(keys >> k & 1u), v ? (int)(v < 127u ? v : 127u) : 127);
+        if (keys >> k & 1u)                      /* and leant on: key_lean is a percentage */
+            h1_key_pressure((int)k, (int)((lean < 100u ? lean : 100u) * 127u / 100u));
+    }
     for (k = 0; k < NB; k++)
         if ((btn ^ btn_was) >> k & 1u)
             h1_button((int)k, (int)(btn >> k & 1u));     /* the labels and H1_BTN_* are the same order */

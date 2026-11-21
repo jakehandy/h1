@@ -67,6 +67,7 @@ typedef struct IRun {
     uint32_t adv;                                /* the control block its own clocks last moved in */
     uint16_t linger;                             /* control blocks its post still runs after its last voice */
     uint8_t owner;                               /* the part its block() was last called for */
+    f32 press;                                   /* the hardest lean among its notes, this control block (press_block) */
 } IRun;
 #define LINGER 400                               /* 0.3 s */
 static IRun ir[NINST];
@@ -107,6 +108,26 @@ void eng_post_note(int on, int note, int vel, int from_midi)
 {
     post(((uint32_t)(on ? EV_NOTE_ON : EV_NOTE_OFF) << 8) | ((uint32_t)note & 127u) |
          ((uint32_t)iclamp(vel, 1, 127) << 16) | (from_midi ? 1u << 23 : 0u));
+}
+
+/* ---- pressure, from the main loop: what each note is leant on (the panel's keys, MIDI aftertouch), and
+ * the channel's (MIDI channel pressure). Bytes, written whole by the main loop and only read here. */
+static volatile uint8_t press_note[128], press_chan;
+static f32 press_k;                              /* the ease a control block (press_block) */
+static int by_hand;                              /* 1 while an event from the panel or MIDI in is being handled */
+
+void eng_pressure(int note, int p)
+{
+    if (note >= 0 && note < 128)
+        press_note[note] = (uint8_t)iclamp(p, 0, 127);
+}
+void eng_pressure_all(int p) { press_chan = (uint8_t)iclamp(p, 0, 127); }
+void eng_pressure_clear(void)
+{
+    int i;
+    for (i = 0; i < 128; i++)
+        press_note[i] = 0;
+    press_chan = 0;
 }
 
 /* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on channel 1. Not what came
@@ -226,6 +247,8 @@ static void voice_on_part(int note, int part, int seq, int lay, int vel)
     v->part = (uint8_t)part;
     v->seq = (uint8_t)seq;
     v->lay = (uint8_t)lay;
+    v->hand = (uint8_t)(by_hand && !seq);        /* (the arpeggiator's notes and the loop's are not under a finger) */
+    v->press = 0.0f;
     vel_set(v, vel);
     v->target = (f32)note;
     if (inst == cur_i) {
@@ -1117,7 +1140,11 @@ static void handle(uint32_t e)
 {
     int type = (int)(e >> 8 & 255u), a = (int)(e & 255u), vel = (int)(e >> 16 & 127u), midi = (int)(e >> 23 & 1u);
     switch (type) {
-    case EV_NOTE_ON: live_note(a & 127, 1, vel ? vel : 127, midi); break;
+    case EV_NOTE_ON:
+        by_hand = 1;
+        live_note(a & 127, 1, vel ? vel : 127, midi);
+        by_hand = 0;
+        break;
     case EV_NOTE_OFF: live_note(a & 127, 0, 0, midi); break;
     case EV_PANIC: panic(a & 1); cue_p = 0; break;
     case EV_CUE: cue_start(a); break;
@@ -1419,6 +1446,16 @@ static void inst_touch(int i)
     r->b.bpm = (f32)iclamp(st.glo[0], 40, 240);
 }
 
+/* A lean on a home knob, the way the LFO is put on its target: the instrument's IP_PTO and IP_PDEPTH, and
+ * the hardest lean among its notes. With nothing to lean on, nothing changes. */
+static void press_route(f32 *k, const InstParams *ip, f32 p)
+{
+    uint32_t t = ip->mix[IP_PTO];
+    int d = (int8_t)ip->mix[IP_PDEPTH];
+    if (t - 1u < 4u && d && p > 0.0f)
+        k[t - 1u] = sat(k[t - 1u] + p * (f32)iclamp(d, -100, 100) * 0.01f);
+}
+
 /* The instrument's block() for a part, if what the instrument holds is another part's numbers or its
  * own clocks have not moved in this control block. They move once a block, whoever asks first. */
 static const Blk *part_set(int part)
@@ -1439,12 +1476,17 @@ static const Blk *part_set(int part)
             r->b.k[k] = (f32)KNOBS(i, PART_ALGO(part))[k] * 0.01f;
     if (r->m.kmod_k >= 0)
         r->b.k[r->m.kmod_k] = sat(r->b.k[r->m.kmod_k] + r->m.kmod);
+    press_route(r->b.k, &st.ip[i], r->press);
+    r->b.press = r->press;
     r->b.step = r->adv == blkno ? 0.0f : (f32)CTRL * ISR;
     r->adv = blkno;
     r->owner = (uint8_t)part;
     insts[i]->block(&r->b);
     return &r->b;
 }
+
+/* a closed layer's numbers as its block() last had them (tests/touch.c) */
+const Blk *eng_lay_blk(int lay) { return &lrun[(lay - 1) & (NLAYER - 1)].b; }
 
 /* The instrument's block() for a closed layer: the layer's own knobs, LFO and envelope, as it was left */
 static const Blk *lay_set(int part, int lay)
@@ -1472,6 +1514,7 @@ static const Blk *lay_set(int part, int lay)
     l->b.time = blk_time;
     l->b.bpm = (f32)iclamp(st.glo[0], 40, 240);
     l->b.step = r->adv == blkno ? 0.0f : (f32)CTRL * ISR;
+    l->b.press = 0.0f;                           /* (a closed layer's notes are the loop's: none is leant on) */
     r->adv = blkno;
     r->owner = 0;                                /* (what the instrument holds is no part's now) */
     insts[i]->block(&l->b);
@@ -1545,6 +1588,43 @@ static int voice_key(const Voice *v)
     return v->part;
 }
 
+/* Pressure, once a control block and before any instrument's block() or render: each note a hand plays takes
+ * what its key is leant on (or the channel's, if that is harder), eased over about 20 ms because the main
+ * loop moves it only once a frame; a note let go eases back to none. Each instrument has the hardest of its
+ * notes', which comes down at the same ease when a leant note goes all at once (taken for another note, or
+ * played again over MIDI), so a knob it is routed onto never jumps. Set here, on the first core, so the second
+ * finds it set. */
+static void press_block(void)
+{
+    f32 top[NINST];
+    int i;
+    for (i = 0; i < NINST; i++)
+        top[i] = 0.0f;
+    for (i = 0; i < NVOICE; i++) {
+        Voice *v = &voices[i];
+        f32 want = 0.0f, p;
+        if (!v->stage) {
+            v->press = 0.0f;
+            continue;
+        }
+        if (v->hand && v->gate) {
+            int n = press_note[v->note & 127u], c = press_chan;
+            want = (f32)(n > c ? n : c) * (1.0f / 127.0f);
+        }
+        p = v->press + (want - v->press) * press_k;
+        if (want == 0.0f && p < 0.0005f)
+            p = 0.0f;
+        v->press = p;
+        if (p > top[PART_INST(v->part)])
+            top[PART_INST(v->part)] = p;
+    }
+    for (i = 0; i < NINST; i++) {
+        f32 p = ir[i].press;
+        p = top[i] >= p ? top[i] : p + (top[i] - p) * press_k;
+        ir[i].press = top[i] == 0.0f && p < 0.0005f ? 0.0f : p;
+    }
+}
+
 static void block(f32 *L, f32 *R)
 {
     static f32 bl[CTRL], br[CTRL];               /* one instrument's voices, before its post */
@@ -1583,6 +1663,7 @@ static void block(f32 *L, f32 *R)
 
     blk_time = run_time;
     run_time += dt;
+    press_block();
     blk = *part_set(live);                       /* the instrument in hand: its LFO, its knobs, its block() */
 
     /* the panel's events and the sequencers, after the instrument has its numbers for this block:
@@ -1918,6 +1999,7 @@ SMALL void eng_init(uint32_t sample_rate)
     }
     dsp_init();
     fx_init(SR);
+    press_k = onepole_k(0.02f, SR * (1.0f / (f32)CTRL));
     {
         uint8_t *p = (uint8_t *)ir;
         uint32_t k;
@@ -1940,6 +2022,7 @@ SMALL void eng_init(uint32_t sample_rate)
             st.layer[i].open = 0;
         }
     lim_g = lim_need = 1.0f;
+    eng_pressure_clear();
     lay_was = layers();
     switch_instrument(st.inst < NINST ? st.inst : 0);
     for (i = 0; i < NVOICE; i++) {               /* nothing sounds and nothing runs: as the power coming on leaves it */
@@ -1983,9 +2066,11 @@ void eng_snapshot(Vis *vis)
         vis->v[i].pitch = v->pitch;
         vis->v[i].env = v->env;
         vis->v[i].age = v->age;
+        vis->v[i].press = v->press;
     }
     for (i = 0; i < 4; i++)
         vis->k[i] = blk.k[i];
+    vis->press = blk.press;
     vis->level = level_out;
     vis->lfo = lfo_out;
     vis->beat = beat_out;

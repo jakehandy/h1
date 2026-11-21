@@ -38,8 +38,9 @@ typedef struct Voice {
     uint8_t part;                /* the instrument and algorithm it sounds with (PART), 0 = never used */
     uint8_t seq;                 /* 1: the sequencer started it (LAYERS), and the sequencer lets it go */
     uint8_t lay;                 /* the recorded layer it sounds as (1..NLAYER, with its own settings), 0 = none */
-    uint8_t vel;                 /* the note's velocity, 1..127 (the panel's keys: 127) */
+    uint8_t vel;                 /* the note's velocity, 1..127 (h1_key: 127) */
     uint8_t declick;             /* 1: it was taken over while it still sounded (voice_on_part) */
+    uint8_t hand;                /* 1: a hand played it (the keys, MIDI in), so it can be leant on */
     uint32_t serial;             /* counts note-ons: the picture sees a new note when it changes */
     uint32_t stamp;              /* allocation order */
     f32 pitch;                   /* MIDI note, gliding, before bends */
@@ -56,6 +57,8 @@ typedef struct Voice {
     f32 vamp, vk, vlp[2];        /* velocity: the gain, the low-pass's coefficient (1: open) and its two poles */
     f32 last, tail;              /* the last sample it put in the mix (gain in, before the pan), and what is
                                   * left of a jump when it was taken over, dying away */
+    f32 press;                   /* how hard its key is leant on, 0..1, eased. The engine sets it before render
+                                  * (press_block); a note of the loop, the steps or the arpeggiator has none */
 } Voice;
 
 /* ---- saved parameters ----------------------------------------------------------------- */
@@ -70,9 +73,13 @@ typedef struct InstParams {
     uint8_t arp[4];              /* mode, rate, range, gate */
     uint8_t mix[3];              /* [IP_CUT] 0..100: how far the instrument is turned down. Its volume is 100 less
                                   * that, kept this way round so a state saved before there was one (a zero here)
-                                  * is at full. The other two: spare, zero. */
+                                  * is at full. [IP_PTO] the home knob a lean turns, 1..4, 0 none; [IP_PDEPTH] how
+                                  * far a full lean turns it, -100..100 as a signed byte. Both were spare, so a
+                                  * state from before them leans on nothing. */
 } InstParams;
 #define IP_CUT 0
+#define IP_PTO 1
+#define IP_PDEPTH 2
 
 #define H1_MAGIC 0x31483148u     /* "H1H1" */
 #define H1_VERSION 9u
@@ -182,6 +189,7 @@ typedef struct Blk {
     f32 bpm;
     f32 step;                    /* seconds the instrument's own clocks move on in this call: a control block's, or
                                   * 0 when its block() is called again in the same block for another part */
+    f32 press;                   /* 0..1: the hardest lean among the instrument's notes (a closed layer's: 0) */
 } Blk;
 
 /* ---- what an instrument's picture gets every frame ------------------------------------ */
@@ -191,6 +199,7 @@ typedef struct VVoice {
     uint8_t seq;                 /* the sequencer played it, not a hand */
     uint32_t serial;
     f32 pitch, env, age;
+    f32 press;                   /* 0..1: how hard it is leant on (Voice.press) */
 } VVoice;
 
 typedef struct Vis {
@@ -202,6 +211,7 @@ typedef struct Vis {
     int fresh;                   /* 1 on the first frame after it came up */
     VVoice v[NVOICE];
     f32 level;                   /* output level, 0..1 */
+    f32 press;                   /* 0..1: the hardest lean among the instrument's notes, as its block() has it */
     f32 lfo;
     f32 beat;                    /* 0..1 within the beat */
     uint32_t notes;              /* note-ons so far, all voices */
@@ -300,11 +310,17 @@ int seq_accent(int tick_in_bar);                 /* 2 the bar's first beat, 1 an
 enum { CUE_TILT, CUE_PIP, CUE_TURBO, CUE_ORBIT, CUE_COZY, CUE_KOI, CUE_HAUNT, NCUE };
 #define eng_cue(i) eng_post(EV_CUE, (i))
 uint32_t eng_cues(void);                         /* cues started so far (tests/eggs.c) */
+const Blk *eng_lay_blk(int lay);                 /* a closed layer's numbers, as its block() last had them (tests/touch.c) */
 
 void eng_init(uint32_t sample_rate);
 void eng_post(int type, int a);                  /* main loop -> audio, lock-free */
 void eng_post_note(int on, int note, int vel, int from_midi);   /* a note, with its velocity (1..127) and whether it
                                                   * came in over MIDI (then it is not sent out again) */
+/* Pressure, main loop -> audio: a byte a note, and one for the channel (MIDI channel pressure), written here and
+ * read once a control block. A byte is written whole, so no lock is needed, as with the knobs. 0..127. */
+void eng_pressure(int note, int p);
+void eng_pressure_all(int p);
+void eng_pressure_clear(void);
 /* MIDI out (h1_midi_out): the engine calls it from inside the render, the UI from the main loop */
 extern void (*eng_midi_fn)(uint8_t status, uint8_t d1, uint8_t d2);
 /* the loop, saved apart from the state (h1_loop): main loop */
