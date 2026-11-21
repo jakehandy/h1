@@ -200,7 +200,7 @@ static void eyes(int count, f32 sc, const Vis *vis)
     }
 }
 
-static void urchin_draw(const Vis *vis)
+static SMALL void urchin_draw(const Vis *vis)          /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, x = vis->k[0] * 4.999f, mlo, mfr, I, A, R0, fz = vis->k[2] * vis->k[2], tail = vis->k[3], mt;
     f32 lvl = 0.0f, tx = 0.0f, ty = 0.0f;

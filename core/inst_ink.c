@@ -189,7 +189,7 @@ static void ink_col(int style, int x, f32 y, f32 w, uint32_t cn, uint32_t id, f3
     }
 }
 
-static void ink_draw(const Vis *vis)
+static SMALL void ink_draw(const Vis *vis)          /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, t = vis->t, shake = vis->k[1], press = vis->k[2], dry = vis->k[3], mt = smooth01(vis->algo_t);
     f32 speed = 18.0f + 0.26f * (f32)st.glo[0], dim = 0.2f + 0.8f * absf(2.0f * mt - 1.0f), bw = (3.0f + 29.0f * press * (0.4f + 0.6f * press));

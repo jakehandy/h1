@@ -289,7 +289,7 @@ static APART void mirror(const Vis *vis)
     }
 }
 
-static void turbo_draw(const Vis *vis)
+static SMALL void turbo_draw(const Vis *vis)          /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, t = vis->t, chorus = vis->k[0], tape = vis->k[1], glare = vis->k[2], drive = vis->k[3], mt = smooth01(vis->algo_t);
     f32 lev = sat(vis->level * 3.0f), speed = (1.4f + 6.5f * drive * (0.4f + 0.6f * drive)) * (0.85f + 0.3f * lev), want, par, sunx, R, cy;

@@ -394,7 +394,7 @@ static APART void pot(const Vis *vis)
     }
 }
 
-static void cozy_draw(const Vis *vis)
+static SMALL void cozy_draw(const Vis *vis)          /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, t = vis->t, dust = vis->k[0], wow = vis->k[1], muffle = vis->k[2], sway = vis->k[3], mt = smooth01(vis->algo_t);
     f32 lev = sat(vis->level * 3.0f), want[12] = {0}, W = WX1 - WX0;

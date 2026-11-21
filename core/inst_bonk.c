@@ -353,7 +353,7 @@ static void shape(int type, f32 x, f32 y, f32 s, f32 r, f32 fill, f32 a, f32 w)
 #undef PY
 }
 
-static void bonk_draw(const Vis *vis)
+static SMALL void bonk_draw(const Vis *vis) /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, t = vis->t, tune = vis->k[0], decay = vis->k[1], punch = vis->k[2], dirt = vis->k[3];
     f32 scale = 1.28f - 0.56f * tune, glow_k = 1.0f / (0.12f + 0.9f * decay * decay), ring_k = 1.0f / (0.3f + 0.9f * decay);
