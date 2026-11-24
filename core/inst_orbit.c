@@ -306,7 +306,7 @@ static void body(int kind, f32 x, f32 y, f32 r, f32 rot, f32 seed, f32 a, f32 an
     }
 }
 
-static void centre(int algo, f32 a, const Vis *vis, f32 S, f32 lev)
+static SMALL void centre(int algo, f32 a, const Vis *vis, f32 S, f32 lev) /* (built small: room for BLAB) */
 {
     f32 t = vis->t, cx = 120.0f + 5.0f * sin_turns(t * 0.05f), cy = 120.0f + 4.0f * sin_turns(t * 0.037f + 0.2f), xy[2 * 13];
     int i, k;

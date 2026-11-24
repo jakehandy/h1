@@ -184,7 +184,7 @@ enum { W_RAIN, W_SUNSET, W_SNOW, W_MOON, W_STARS, W_FOG, W_FIREWORKS, W_STORM };
 
 static f32 hsh(uint32_t n) { n = (n ^ 61u) ^ (n >> 16); n *= 9u; n ^= n >> 4; n *= 0x27d4eb2du; n ^= n >> 15; return (f32)(n & 0xFFFFu) * (1.0f / 65536.0f); }
 
-static void weather(int w, f32 a, const Vis *vis)
+static SMALL void weather(int w, f32 a, const Vis *vis) /* (built small: room for BLAB) */
 {
     f32 t = vis->t, W = WX1 - WX0, H = WY1 - WY0;
     int i, j;
