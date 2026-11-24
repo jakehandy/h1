@@ -28,8 +28,9 @@ setting starts off, so nothing changes until you turn it on.
   already recorded. LAYERS on or off, the take keeps what it was recorded with.
 - A USB-MIDI keyboard on USB host no longer says NOT MIDI when it is one (#54). fm1-base's host now waits for
   slow keyboards and reads every MIDI endpoint.
-- USB audio: the FM-1 also shows up as a serial port, as the stock firmware does, which some computers
-  need before they take the audio.
+- USB audio: the FM-1 now gives the computer a serial number of its own (from its chip). Without one, a
+  computer (macOS in particular) can go on treating it as whatever firmware was last on that USB port, and
+  not see its audio input.
 - EDIT on a settings page goes back to the home screen with the knob strip up (#49). The step lights show
   the pattern only on the SEQ page or while writing steps, unless LEDS on the SETUP page says SEQ.
 - ORBIT's UFO now needs a key held for twenty seconds, and comes once in ten minutes at most (#62).

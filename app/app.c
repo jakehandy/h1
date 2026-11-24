@@ -544,7 +544,7 @@ void app_panic(void) { h1_midi(0xB0, 123, 0); }
  * older panels take. SETUP's SCREEN: AUTO is 12 MHz on the newer FM-1s (told apart by their flash, the
  * UC25HQ80, JEDEC B3 60 14) and 60 on the older; FAST is 60 on any; SAFE is 12 on any. */
 #ifndef PLAT_HOST
-static const uint8_t PANEL_SEQ[] = {         /* command, count, the bytes; command 0: wait that many ms */
+static const uint8_t SCR_SEQ[] = {         /* command, count, the bytes; command 0: wait that many ms */
     0x28, 0, 0x00, 100,                      /* DISPOFF */
     0x11, 0, 0x00, 120,                      /* SLPOUT */
     0xB2, 5, 0x0C, 0x0C, 0x0C, 0x00, 0x33,   /* PORCTRL */
@@ -565,46 +565,46 @@ static const uint8_t PANEL_SEQ[] = {         /* command, count, the bytes; comma
     0x21, 0,                                 /* INVON */
     0x13, 0,                                 /* NORON */
 };
-#define PANEL_SLOW 4u                        /* 12 MHz, M-VAVE's own */
-static int panel_new;                        /* a newer FM-1 (its flash part) */
-static int panel_speed = -1;
+#define SCR_SLOW 4u                        /* 12 MHz, M-VAVE's own */
+static int scr_new;                        /* a newer FM-1 (its flash part) */
+static int scr_speed = -1;
 
-static void panel_setup(void)
+static void scr_setup(void)
 {
     uint32_t r, i;
-    panel_new = fl_jedec() == 0xB36014u;
-    fm1_lcd_baud(PANEL_SLOW);                /* (the setup itself always at the slow clock) */
-    for (r = 0; r < sizeof PANEL_SEQ; r += 2u + (PANEL_SEQ[r] ? PANEL_SEQ[r + 1u] : 0u)) {
-        if (!PANEL_SEQ[r]) {
-            lcd_spin(PANEL_SEQ[r + 1u] * 25000u);    /* (~1 ms a unit, as fm1-base's init waits) */
+    scr_new = fl_jedec() == 0xB36014u;
+    fm1_lcd_baud(SCR_SLOW);                /* (the setup itself always at the slow clock) */
+    for (r = 0; r < sizeof SCR_SEQ; r += 2u + (SCR_SEQ[r] ? SCR_SEQ[r + 1u] : 0u)) {
+        if (!SCR_SEQ[r]) {
+            lcd_spin(SCR_SEQ[r + 1u] * 25000u);    /* (~1 ms a unit, as fm1-base's init waits) */
             continue;
         }
-        lcd_cmd(PANEL_SEQ[r]);
-        for (i = 0; i < PANEL_SEQ[r + 1u]; i++)
-            lcd_small[16u + i] = PANEL_SEQ[r + 2u + i];
-        if (PANEL_SEQ[r + 1u])
-            lcd_data(lcd_small + 16, PANEL_SEQ[r + 1u]);
+        lcd_cmd(SCR_SEQ[r]);
+        for (i = 0; i < SCR_SEQ[r + 1u]; i++)
+            lcd_small[16u + i] = SCR_SEQ[r + 2u + i];
+        if (SCR_SEQ[r + 1u])
+            lcd_data(lcd_small + 16, SCR_SEQ[r + 1u]);
     }
     lcd_sync();
 }
 
-static void panel_clock(void)                /* SETUP's SCREEN, whenever it changes */
+static void scr_clock(void)                /* SETUP's SCREEN, whenever it changes */
 {
-    int s = h1_screen(), slow = s == 2 || (s == 0 && panel_new);
-    if (s == panel_speed)
+    int s = h1_screen(), slow = s == 2 || (s == 0 && scr_new);
+    if (s == scr_speed)
         return;
-    panel_speed = s;
+    scr_speed = s;
     lcd_sync();
-    fm1_lcd_baud(slow ? PANEL_SLOW : LCD_BAUD);
+    fm1_lcd_baud(slow ? SCR_SLOW : LCD_BAUD);
 }
 #else
-static void panel_setup(void) {}
-static void panel_clock(void) {}
+static void scr_setup(void) {}
+static void scr_clock(void) {}
 #endif
 
 void app_splash(void)
 {
-    panel_setup();
+    scr_setup();
     lcd_fill(0, 0, 240, 240, 0);
 #ifndef PLAT_HOST
     lcd_cmd(0x29);                           /* DISPON (again: the DISPOFF above) */
@@ -620,7 +620,7 @@ static int dirty_wait;
 void app_frame(void)
 {
     uint32_t t0, t1, t2;
-    panel_clock();
+    scr_clock();
     input();
     usb_news();
     ex_step();
