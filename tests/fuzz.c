@@ -59,12 +59,14 @@ static void blit(int x, int y, int w, int h)
 
 extern uint32_t h1_fuzz_nan;                 /* core/synth.c, in this build: samples that were not numbers */
 
-/* MIDI out (h1_midi_out): every message a well-formed one on channel 1, notes and CC 20-23 and 123 only */
+/* MIDI out (h1_midi_out): every message a well-formed one on MIDI's CHAN (1 when it is ALL), notes and CC 20-23 and 123 only */
 static volatile uint32_t midi_outs;
 static void midi_out_check(uint8_t status, uint8_t d1, uint8_t d2)
 {
-    int ok = d1 < 128 && d2 < 128 && ((status == 0x90 && d2 >= 1) || (status == 0x80 && d2 == 0) ||
-             (status == 0xB0 && ((d1 >= 20 && d1 <= 23) || (d1 == 123 && d2 == 0))));
+    int ch = h1_midi_channel(), t = status & 0xF0;
+    int ok = d1 < 128 && d2 < 128 && (status & 15) == (ch ? ch - 1 : 0) &&
+             ((t == 0x90 && d2 >= 1) || (t == 0x80 && d2 == 0) ||
+              (t == 0xB0 && ((d1 >= 20 && d1 <= 23) || (d1 == 123 && d2 == 0))));
     if (!ok)
         die("a MIDI message out that is not one", status, d1, d2, 0);
     midi_outs++;
@@ -134,7 +136,7 @@ static void frame(uint32_t ms, int with_sound)
         have_want = 0;
     }
     if (h1_instrument() < 0 || h1_instrument() >= h1_instrument_count() || h1_algorithm() < 0 || h1_algorithm() >= nalgos(h1_instrument()) ||
-        h1_page() < 0 || h1_page() > 7)
+        h1_page() < 0 || h1_page() > 9)
         die("out of range", h1_instrument(), h1_algorithm(), h1_page(), 0);
     (void)h1_key_leds();
     (void)h1_button_leds();
@@ -183,6 +185,31 @@ static void poke(int with_sound)
         keys_down = btns_down = 0;
     } else if (r < 94) {                                     /* the volume knob, in range and out */
         h1_master(below(1400) - 200);
+        if (below(4) == 0) {                                 /* the port: how busy the sound is, any figure */
+            int n = 1 + below(200), pct = below(5) ? below(160) : below(1000) - 200;
+            while (n--)
+                h1_load(pct);
+        }
+        if (below(8) == 0) {                                 /* a loop sent out: what comes back is whole */
+            uint32_t size = 0;
+            uint8_t meta[H1_META_N];
+            const uint8_t *p = (const uint8_t *)h1_loop_export(&size, meta);
+            volatile uint8_t sum = 0;
+            uint32_t i;
+            if (size > H1_LOOP_MAX)
+                die("a loop sent out bigger than any", (int)size, 0, 0, 0);
+            for (i = 0; p && i < size; i++)
+                sum ^= p[i];
+            (void)h1_silent();
+            (void)h1_screen();
+            (void)h1_state_asked();
+        }
+        /* (the MIDI extras in: bend, the wheel, the pedal, on any channel) */
+        if (below(3) == 0) {
+            static const uint8_t ST[] = {0xE0, 0xE5, 0xB0, 0xB3, 0xBF};
+            uint8_t s0 = ST[below(5)];
+            h1_midi(s0, (uint8_t)(s0 >= 0xE0 ? below(128) : below(2) ? 1 : 64), (uint8_t)below(128));
+        }
     } else if (r < 96) {                                     /* nonsense from a port: ignored */
         h1_key(below(64) - 16, below(2));
         h1_button(below(64) - 16, below(2));

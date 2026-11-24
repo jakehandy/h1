@@ -77,7 +77,7 @@ static void orbit_render(Voice *v, const Blk *b, f32 *out, int n)
     cut = 110.0f * exp2fx(O.sweep * 6.6f);
     switch (algo) {
     default:
-    case 0: cut *= exp2fx(O.lfo * 0.9f); amp = sat(v->age * 4.0f); pw = 0.5f + 0.4f * tsin(spin_ph * 0.5f + v->r1); break;
+    case 0: cut *= exp2fx(O.lfo * 0.9f); amp = sat(v->age * 4.0f); pw = 0.5f + 0.4f * tsin(spin_ph + v->r1); break;   /* (a whole turn a SPIN: half of one jumped back as spin_ph wrapped) */
     case 1: {                                    /* PULSAR: the filter jumps to a new place on every tick */
         f32 tick = fractf(spin_ph * 4.0f + v->r1 * 0.0f);
         if (tick < v->s[7]) v->s[8] = rng_f(&v->u[0]);
@@ -423,9 +423,12 @@ static const uint8_t FLYKIND[NALGO][4] = {
     {ROCK, GATE, ROCK, RINGED}, {PROBE, ROCK, PROBE, MAN}, {GATE, GATE, ROCK, GATE}, {MAN, ROCK, ROCK, RINGED},
 };
 
-/* (hidden) hold one note, alone, for five seconds: a call going out. Something comes to see who is calling,
- * has a look, and is gone. */
-static f32 ufo;
+/* (hidden) hold one note, alone, for twenty seconds: a call going out. Something comes to see who is calling,
+ * has a look, and is gone, and does not come again for ten minutes. (It was five seconds and every time:
+ * HOLE, DRIFT and RADIO are drones, held that long all the time, #62.) */
+#define UFO_HOLD 20.0f
+#define UFO_AGAIN 600.0f
+static f32 ufo, ufo_last = -UFO_AGAIN;
 static int ufo_done;
 
 static APART void saucer(const Vis *vis)
@@ -442,8 +445,9 @@ static APART void saucer(const Vis *vis)
             }
         if (!held)
             ufo_done = 0;
-        if (held == 1 && age > 5.0f && !ufo_done) {
+        if (held == 1 && age > UFO_HOLD && !ufo_done && EGGS_ON && t - ufo_last > UFO_AGAIN) {
             ufo_done = 1;
+            ufo_last = t;
             ufo = 1.0f;
             eng_cue(CUE_ORBIT);
         }

@@ -33,6 +33,13 @@ crash_history = true
 # records it straight off the cable: the sound at MASTER. Nothing played back through it (usb_audio_out).
 usb_audio_in = true
 usb_audio_out = false
+# a USB serial number from the chip's ID: a computer tells this FM-1 apart by it, not by the port it is in (macOS
+# otherwise keeps what it learnt of another firmware on that port: 0.3.1, for a computer that did not see h1's audio)
+usb_serial = true
+# The M-VAVE panel's own ST7789V settings after the reset (porch, gate voltages, VCOM, supplies, 60 Hz, gammas):
+# newer FM-1s (the FM-1/M-VAVE logo under the screen) show washed-out colours, no reds or a blank screen without
+# them. app.c then sends M-VAVE's own sequence once more, in its order, and slows the panel's clock on those units.
+lcd_panel = true
 # firmware.json, for firmware hubs (base/docs/FIRMWARE-JSON.md): the build writes it from these
 # the name people see on a listing; name above stays "h1" (file names, id, USB names)
 title = "handy-1 (h1)"

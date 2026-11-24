@@ -124,6 +124,8 @@ int main(void)
     CHECK(eng_cues() == n + 1, "the loop playing it back does not set it off");
     tap(H1_BTN_PLAY);
     h1_button(H1_BTN_REC, 1); go(3300); h1_button(H1_BTN_REC, 0); go(200);       /* (and the loop is cleared) */
+    tap(H1_BTN_REC);                             /* (REC again: all of it) */
+    go(200);
 
     /* TURBO: fast, for long enough */
     inst(TURBO);
@@ -148,14 +150,33 @@ int main(void)
     h1_key(5, 0);
     go(300);
     h1_key(5, 1);
-    go(4000);
-    CHECK(eng_cues() == n, "ORBIT: four seconds is not long enough");
+    go(19000);
+    CHECK(eng_cues() == n, "ORBIT: nineteen seconds is not long enough (#62)");
     go(1500);
-    CHECK(eng_cues() == n + 1, "ORBIT: one note held five seconds is answered");
+    CHECK(eng_cues() == n + 1, "ORBIT: one note held twenty seconds is answered");
     go(8000);
     CHECK(eng_cues() == n + 1, "and once, however long it is held");
     h1_key(5, 0);
     go(300);
+    h1_key(5, 1);
+    go(21000);
+    h1_key(5, 0);
+    go(300);
+    CHECK(eng_cues() == n + 1, "ORBIT: not again within ten minutes (#62)");
+    /* SETUP EGGS OFF: none of them, however they are asked for */
+    opt[OPT_EGGS] = 1;
+    inst(TURBO);
+    n = eng_cues();
+    for (i = 0; i < 80; i++)
+        key(i % 12, 40, 25);
+    CHECK(eng_cues() == n, "EGGS OFF: TURBO's siren stays away");
+    inst(ORBIT);
+    h1_key(5, 1);
+    go(21000);
+    h1_key(5, 0);
+    go(300);
+    CHECK(eng_cues() == n, "EGGS OFF: nothing comes to ORBIT");
+    opt[OPT_EGGS] = 0;
 
     /* COZY: the same note, over and over */
     inst(COZY);

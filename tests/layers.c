@@ -174,7 +174,19 @@ int main(void)
     hold(H1_BTN_REC, 3200);
     go(400);
     n = listen(5000);
-    CHECK(n == 0 && only(played, -1, -1), "hold REC three seconds clears everything");
+    CHECK(n > 0, "hold REC three seconds only asks (#49)");
+    hold(H1_BTN_REC, 3200);
+    go(4000);
+    hold(H1_BTN_REC, 60);                        /* (asked too long ago: a tap of REC then is only a tap) */
+    go(400);
+    n = listen(5000);
+    CHECK(n > 0, "and the question goes after three seconds");
+    hold(H1_BTN_REC, 3200);
+    go(100);
+    hold(H1_BTN_REC, 60);                        /* REC again: yes */
+    go(400);
+    n = listen(5000);
+    CHECK(n == 0 && only(played, -1, -1), "hold REC three seconds, then REC again, clears everything");
 
     /* ---- the steps ---- */
     hold(H1_BTN_SEQ, 700);                       /* to STEP */

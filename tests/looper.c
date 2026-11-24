@@ -83,6 +83,7 @@ static void stop_and_clear(void)
 {
     tap(H1_BTN_PLAY);
     h1_button(H1_BTN_REC, 1); until(now() + 3300); h1_button(H1_BTN_REC, 0); until(now() + 100);
+    h1_button(H1_BTN_REC, 1); until(now() + 60); h1_button(H1_BTN_REC, 0); until(now() + 100);   /* (REC again: all of it, #49) */
 }
 
 /* takes of n notes each onto a loop of 2^lb bars, another instrument for each, then one pass counted */

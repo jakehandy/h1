@@ -60,6 +60,10 @@ static void lava_render(Voice *v, const Blk *b, f32 *out, int n)
     f32 q = 0.8f, oct = 2.6f * exp2fx(-v->age * 6.0f) + (pitch - 36.0f) * (1.0f / 24.0f), sub = V.sub * 0.9f, pa = v->ph[0], pb = v->ph[1], pc = v->ph[2];
     f32 gdyn = g * (0.55f + 0.45f * exp2fx(-v->age * 2.5f)), hp = 0.0f, norm;
 
+    /* (the higher the note, the fewer the folds: up there every fold is partials past what the rate holds,
+     * a fizz and not a bass) */
+    gdyn *= clampf(exp2fx((36.0f - pitch) * (1.0f / 36.0f)), 0.45f, 1.0f);
+
     switch (algo) {
     case 1: q = 5.5f; oct = 3.6f * exp2fx(-v->age * 9.0f); gdyn *= 0.6f; break;          /* ACID */
     case 3: q = 2.2f; oct += 0.9f * tsin(v->age * 2.7f + v->r1); break;                  /* GROWL */

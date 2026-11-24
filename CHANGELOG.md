@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.3.1
+
+Identity `FM-1_481000301`. Fixes from the GitHub issues and Discord since 0.3.0, the layer view, MIDI extras
+and a loop you can take out as a MIDI file. Saved states and loops from 0.3.0 load as they were; every new
+setting starts off, so nothing changes until you turn it on.
+
+**Screen**
+- FM-1s from the newer production run have a different screen, and h1 showed it in the wrong colours. h1 now
+  sends the screen the same setup the stock firmware does, at start, and runs the newer screen at a slower,
+  safe clock. Older units look as before. **SCREEN** on the SETUP page picks the clock: AUTO (the default,
+  by unit), FAST, or SAFE if a screen still shows noise.
+
+**Crackles and dropouts**
+- No more crackle at the start (#64), and no more dropouts with the key lights flickering (#58). Both came
+  from flash erases, which stall the sound while they run. The loop's space is now erased a sector at a time,
+  and only while nothing sounds, and the instrument in hand and its knobs save once nothing sounds (or
+  after half a minute at most, or at once on SAVE).
+- No more loud crackle after three or four looped instruments (#66). That was the sound taking longer than it
+  has. When the sound runs out of time for a while, h1 now plays fewer voices at once, lets go of releasing
+  notes faster, and gives the voices back once there is room. Nothing changes until the load is high.
+
+**Fixes**
+- A note no longer sticks after turning the arpeggiator off with keys held (#56).
+- Layers of the same instrument are independent (#55, #52): a layer's note starts on that layer's own
+  knobs, so turning TILT's BOUNCE (or any instrument's knobs) after a take no longer changes the drums
+  already recorded. LAYERS on or off, the take keeps what it was recorded with.
+- A USB-MIDI keyboard on USB host no longer says NOT MIDI when it is one (#54). fm1-base's host now waits for
+  slow keyboards and reads every MIDI endpoint.
+- USB audio: the FM-1 now gives the computer a serial number of its own (from its chip). Without one, a
+  computer (macOS in particular) can go on treating it as whatever firmware was last on that USB port, and
+  not see its audio input.
+- EDIT on a settings page goes back to the home screen with the knob strip up (#49). The step lights show
+  the pattern only on the SEQ page or while writing steps, unless LEDS on the SETUP page says SEQ.
+- ORBIT's UFO now needs a key held for twenty seconds, and comes once in ten minutes at most (#62).
+
+**Layer view**
+- With LAYERS on, hold PLAY: the sixteen white keys are the sixteen layers, lit where a layer is heard (a soloed one
+  blinks). Tap a
+  key to mute or unmute that layer. Hold a key to hear only that layer (solo); hold it again for all of
+  them. Hold a key and turn SELECT for that layer's volume. Hold a key and press REC to clear that layer.
+  Mutes, solo and volumes are saved with the loop.
+- With LAYERS on and the sequencer running, PLAY stops it on a quick tap with nothing else touched, so
+  holding it for the layer view never stops the loop.
+
+**MIDI**
+- A new MIDI page (after SEQ, with SELECT): **CHAN** (ALL, or 1 to 16, in and out), **BEND** (OFF, 2 or 12
+  semitones), **WHEEL** (the mod wheel deepens the live modulation) and **PEDAL** (a sustain pedal on
+  CC 64). All off by default.
+- KEYS' HOLD has a third setting, **ARP**: the keys latch only while the arpeggiator is on.
+- MIDI out goes on CHAN's channel (channel 1 when it is ALL).
+- The loop can be taken out as a MIDI file: a computer asks for it over USB-MIDI with a SysEx message and h1
+  sends the loop back, one layer a track. `tools/h1_loop_mid.py` turns what comes back into a `.mid` file.
+  SysEx, because it needs nothing new on the device (no USB storage) and works on any computer that talks
+  MIDI.
+
+**Sound**
+- URCHIN, COZY's TINE and REED, and TURBO are brighter the harder they are played, as the other FM
+  instruments are.
+- LAVA's high notes fold less, so they no longer turn harsh and gritty.
+- ORBIT's pulse and HAUNT's choir no longer jump at the end of each swell; HAUNT's bells and KNOT no
+  longer alias on high notes.
+
+**Setup**
+- A new SETUP page (after MIDI): **ANIM** (OFF shows the instrument's name and algorithm instead of its
+  picture), **EGGS** (OFF turns off everything hidden in the pictures), **SCREEN** (see above) and
+  **LEDS**.
+- Holding REC for three seconds to clear everything now asks first: the screen says `TAP REC: CLEAR ALL`,
+  and only a tap of REC within three seconds clears it. Any other button keeps everything.
+
 ## 0.3.0
 
 Identity `FM-1_481000300`. Two drum machines, and the fixes from the GitHub issues so far.

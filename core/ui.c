@@ -41,6 +41,12 @@ static const char *const O_SEQMODE[] = {"LOOP", "STEP"};
 static const char *const O_METER[] = {"4/4", "3/4", "5/4", "6/8", "7/8"};
 static const char *const O_GRID[] = {"1/8", "1/16", "1/32"};
 static const char *const O_CLICK[] = {"CLICK REC", "CLICK ON", "CLICK OFF"};
+static const char *const O_HOLD[] = {"OFF", "ON", "ARP"};
+static const char *const O_CHAN[] = {"ALL", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"};
+static const char *const O_BEND[] = {"OFF", "2", "12"};
+static const char *const O_ONOFF_R[] = {"ON", "OFF"};
+static const char *const O_SCREEN[] = {"AUTO", "FAST", "SAFE"};
+static const char *const O_LEDS[] = {"PLAYED", "SEQ"};
 
 /* in the order of the buttons that open them, reading the panel's two rows left to right */
 const PageDef pages[NPAGE] = {
@@ -48,7 +54,7 @@ const PageDef pages[NPAGE] = {
     {"FX", {{"ECHO", PK_PCT, 100, 0, 0, 0}, {"TIME", PK_ENUM, 7, 0, 0, O_TIME},
             {"SPACE", PK_PCT, 100, 0, 0, 0}, {"TONE", PK_PCT, 100, 0, -50, 0}}},
     {"KEYS", {{"ROOT", PK_ENUM, 11, 0, 0, O_ROOT}, {"SCALE", PK_ENUM, 7, 0, 0, O_SCALE},
-              {"GLIDE", PK_PCT, 100, 0, 0, 0}, {"HOLD", PK_ENUM, 1, 0, 0, O_ONOFF}}},
+              {"GLIDE", PK_PCT, 100, 0, 0, 0}, {"HOLD", PK_ENUM, 2, 0, 0, O_HOLD}}},
     {"ENV", {{"ATTACK", PK_PCT, 100, 0, 0, 0}, {"DECAY", PK_PCT, 100, 0, 0, 0},
              {"SUSTAIN", PK_PCT, 100, 0, 0, 0}, {"RELEASE", PK_PCT, 100, 0, 0, 0}}},
     {"LFO", {{"SHAPE", PK_ENUM, 5, 0, 0, O_SHAPE}, {"RATE", PK_PCT, 100, 0, 0, 0},
@@ -59,11 +65,16 @@ const PageDef pages[NPAGE] = {
              {"RANGE", PK_INT, 4, 1, 0, 0}, {"GATE", PK_PCT, 100, 5, 0, 0}}},
     {"SEQ", {{"MODE", PK_ENUM, 1, 0, 0, O_SEQMODE}, {"BARS", PK_ENUM, 7, 0, 0, O_BARS},
              {"METER", PK_ENUM, 4, 0, 0, O_METER}, {"SNAP", PK_ENUM, 2, 0, 0, O_QUANT}}},
+    /* no buttons: SELECT turns on to them from SEQ (0.3.1). Every one is off, or as before, until set. */
+    {"MIDI", {{"CHAN", PK_ENUM, 16, 0, 0, O_CHAN}, {"BEND", PK_ENUM, 2, 0, 0, O_BEND},
+              {"WHEEL", PK_ENUM, 1, 0, 0, O_ONOFF}, {"PEDAL", PK_ENUM, 1, 0, 0, O_ONOFF}}},
+    {"SETUP", {{"ANIM", PK_ENUM, 1, 0, 0, O_ONOFF_R}, {"EGGS", PK_ENUM, 1, 0, 0, O_ONOFF_R},
+               {"SCREEN", PK_ENUM, 2, 0, 0, O_SCREEN}, {"LEDS", PK_ENUM, 1, 0, 0, O_LEDS}}},
 };
 static const ParamDef P_GRID = {"GRID", PK_ENUM, 2, 0, 0, O_GRID};
 
 /* where each page's button sits on the panel: column 0..5, row 0..1 */
-static const uint8_t PAGE_AT[NPAGE][2] = {{0, 1}, {0, 0}, {1, 0}, {2, 0}, {3, 0}, {5, 0}, {2, 1}, {3, 1}};
+static const uint8_t PAGE_AT[PG_BUTTONS][2] = {{0, 1}, {0, 0}, {1, 0}, {2, 0}, {3, 0}, {5, 0}, {2, 1}, {3, 1}};
 
 const ParamDef *page_param(int pg, int i)
 {
@@ -83,6 +94,8 @@ uint8_t *page_value(int pg, int i)
     case PG_KEYS: return &st.keys[i];
     case PG_GLO: return &st.glo[i];
     case PG_SEQ: return &st.seq[i == 3 && st.seq[0] == SEQ_STEP ? 4 : i];
+    case PG_MIDI: return &opt[i];
+    case PG_SETUP: return &opt[4 + i];
     default: return &KNOBS_NOW(st.inst)[i];
     }
 }
@@ -120,6 +133,8 @@ static f32 ring_t = 9.0f, ring_x, ring_v;        /* seconds since it was last to
 static f32 ring_up = 9.0f;                       /* seconds since it came up */
 #define RING_STAYS 0.9f                          /* seconds it stays after the last touch, then 0.4 s to go */
 static int toast_pips = -1;
+static uint32_t clear_all_ms;                    /* REC held three seconds: when it asked to be pressed again */
+static int clear_all;
 
 static SeqInfo seq;                              /* the sequencer, as of this frame */
 static int seq_write_was;
@@ -140,7 +155,7 @@ static int force_full = 1;
 static uint8_t rq[RQ_MAX][4];                    /* what is queued for the panel: x, y, w, h (h1_present_begin) */
 static int rq_n, rq_i;
 static uint32_t rq_bytes;
-static int dirty;
+static int dirty, save_asked;                    /* save_asked: SAVE pressed, saved even while a tail rings */
 static uint32_t dirty_ms;
 
 int ui_page(void) { return page; }
@@ -304,9 +319,177 @@ static void set_seq_mode(int m)
     mark_dirty();
 }
 
+/* ---- the layer view (0.3.1, #55 #63): PLAY held with LAYERS on ---------------------------------
+ * The sixteen white keys are the sixteen layers. A tap mutes or unmutes one; held a moment, it is the
+ * only one heard (solo), and again, all are. Held with SELECT turned, its volume; held with REC, it is
+ * cleared. While the sequencer runs, PLAY stops it only on a quick tap with nothing else touched. */
+static const uint8_t WHITE_KEY[NLAYER] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
+#define LV_SOLO_MS 800u
+static int lv_play, lv_used, lv_defer, lv_key = -1, lv_key_fired;
+static uint32_t lv_key_ms;
+
+static int layview_on(void) { return lv_play && (lv_used || now - btn_ms[H1_BTN_PLAY] > 250u); }
+
+static int seq_running(void)
+{
+    if (seq.mode == SEQ_STEP)
+        return seq.playing;
+    return seq.loop_state == LOOP_PLAY || seq.loop_state == LOOP_DUB || seq.loop_state == LOOP_REC;
+}
+
+static uint32_t lay_heard(void)                  /* bit k: layer k + 1 is there and heard */
+{
+    uint32_t solo = 0, mute = 0, have = 0;
+    int i;
+    for (i = 0; i < NLAYER; i++)
+        if (st.layer[i].part) {
+            have |= 1u << i;
+            if (st.layer[i].rsv[1] & LAY_SOLO) solo |= 1u << i;
+            if (st.layer[i].rsv[1] & LAY_MUTE) mute |= 1u << i;
+        }
+    return solo ? solo : have & ~mute;
+}
+
+static uint32_t layview_leds(void)
+{
+    uint32_t m = 0, heard = lay_heard();
+    int i;
+    for (i = 0; i < NLAYER; i++)
+        if ((heard >> i & 1u) && (!(st.layer[i].rsv[1] & LAY_SOLO) || fractf(tsec * 2.5f) < 0.6f))
+            m |= 1u << WHITE_KEY[i];
+    return m;
+}
+
+static APART void lv_toast(int k, const char *what)
+{
+    toast("LAYER ", k + 1, 1, what, -1);
+}
+
+static APART void lv_key_up(int k)
+{
+    Layer *l = &st.layer[k];
+    if (!l->part) {
+        lv_toast(k, " EMPTY");
+        return;
+    }
+    l->rsv[1] ^= LAY_MUTE;
+    lv_toast(k, l->rsv[1] & LAY_MUTE ? " MUTED" : " ON");
+    mark_dirty();
+}
+
+/* a button pressed while PLAY is held: REC on a layer key clears that layer */
+static APART int layview_button(int btn)
+{
+    if (!lv_play || btn != H1_BTN_REC || lv_key < 0)
+        return 0;
+    lv_used = lv_key_fired = 1;
+    btn_fired[btn] = 3;
+    if (st.layer[lv_key].part) {
+        eng_post(EV_CLEAR_LAY, lv_key + 1);
+        lv_toast(lv_key, " CLEARED");
+        mark_dirty();
+    } else
+        lv_toast(lv_key, " EMPTY");
+    return 1;
+}
+
+/* a key while PLAY is held: 1 when the layer view took it */
+static APART int layview_key(int key, int down)
+{
+    int k;
+    if (!lv_play)
+        return 0;
+    for (k = 0; k < NLAYER && WHITE_KEY[k] != key; k++)
+        ;
+    lv_used = 1;
+    if (down) {
+        if (k < NLAYER) {
+            lv_key = k;
+            lv_key_ms = now;
+            lv_key_fired = 0;
+        }
+    } else if (k < NLAYER && k == lv_key) {
+        if (!lv_key_fired)
+            lv_key_up(k);
+        lv_key = -1;
+    }
+    return 1;
+}
+
+static APART void layview_hold(void)
+{
+    Layer *l;
+    if (lv_key < 0 || lv_key_fired || now - lv_key_ms <= LV_SOLO_MS)
+        return;
+    lv_key_fired = 1;
+    l = &st.layer[lv_key];
+    if (!l->part) {
+        lv_toast(lv_key, " EMPTY");
+        return;
+    }
+    if (l->rsv[1] & LAY_SOLO) {
+        l->rsv[1] &= ~LAY_SOLO;
+        lv_toast(lv_key, " SOLO OFF");
+    } else {
+        int i;
+        for (i = 0; i < NLAYER; i++)             /* one at a time: the one held is the one heard */
+            st.layer[i].rsv[1] &= ~LAY_SOLO;
+        l->rsv[1] = (uint8_t)((l->rsv[1] | LAY_SOLO) & ~LAY_MUTE);
+        lv_toast(lv_key, " SOLO");
+    }
+    mark_dirty();
+}
+
+static APART void layview_volume(int d)
+{
+    Layer *l = &st.layer[lv_key];
+    int v;
+    lv_key_fired = 1;
+    if (!l->part) {
+        lv_toast(lv_key, " EMPTY");
+        return;
+    }
+    v = iclamp(100 - l->rsv[0] + d, 0, 100);
+    l->rsv[0] = (uint8_t)(100 - v);
+    toast("LAYER ", lv_key + 1, 1, 0, -1);
+    put_i(put_s(toast_s + 7 + (lv_key >= 9), " VOL "), v);
+    mark_dirty();
+}
+
+/* the view: a card for each layer, four by four, the white keys' order */
+static APART void draw_layview(void)
+{
+    uint32_t heard = lay_heard();
+    int i;
+    char b[4];
+    g_mode(G_PAINT);
+    g_rect(4.0f, 30.0f, 232.0f, 178.0f, 0.0f);
+    g_mode(G_MAX);
+    g_text(120.0f, 34.0f, "LAYERS", 12.0f, 1.6f, 1.0f, 1);
+    for (i = 0; i < NLAYER; i++) {
+        const Layer *l = &st.layer[i];
+        f32 x = 10.0f + (f32)(i & 3) * 56.0f, y = 54.0f + (f32)(i >> 2) * 37.0f, a;
+        int on = (int)(heard >> i & 1u);
+        a = !l->part ? 0.2f : (on ? 1.0f : 0.4f);
+        g_line(x, y, x + 50.0f, y, i == lv_key ? 3.0f : 1.4f, a);
+        put_i(b, i + 1);
+        g_text(x, y + 4.0f, b, 9.0f, 1.2f, a, 0);
+        if (!l->part)
+            continue;
+        if (l->rsv[1] & LAY_SOLO)
+            g_disc(x + 46.0f, y + 8.0f, 3.0f, 1.0f);
+        else if (l->rsv[1] & LAY_MUTE)
+            g_text(x + 50.0f, y + 4.0f, "M", 9.0f, 1.2f, 0.7f, 2);
+        fit_text(x + 25.0f, y + 16.0f, insts[PART_INST(l->part)]->name, 8.0f, 50.0f, a);
+        g_line(x, y + 30.0f, x + 50.0f * (f32)(100 - l->rsv[0]) * 0.01f, y + 30.0f, 2.0f, a * 0.8f);
+    }
+}
+
 void h1_key(int key, int down)
 {
     if (key < 0 || key >= H1_NKEYS)
+        return;
+    if ((down || !key_down[key]) && layview_key(key, down))
         return;
     if (down) {
         int note = scale_snap(53 + key + 12 * st.octave);
@@ -314,6 +497,7 @@ void h1_key(int key, int down)
             return;
         if (writing()) {                         /* WRITE: a letter, sung at its key */
             blab_type(key);
+            mark_dirty();
             if (key >= 26)
                 return;
         }
@@ -327,9 +511,26 @@ void h1_key(int key, int down)
     }
 }
 
-void h1_midi(uint8_t status, uint8_t d1, uint8_t d2)
+SMALL void h1_midi(uint8_t status, uint8_t d1, uint8_t d2)
 {
     uint8_t type = status & 0xF0u;
+    if (opt[OPT_CHAN] && type >= 0x80u && type < 0xF0u && (status & 15u) != opt[OPT_CHAN] - 1u)
+        return;                                              /* MIDI page CHAN: one channel only */
+    if (type == 0xE0u) {                                     /* pitch bend, by BEND's range */
+        if (opt[OPT_BEND])
+            eng_bend = (f32)((int)((d2 & 127u) << 7 | (d1 & 127u)) - 8192) * (opt[OPT_BEND] == 1 ? 2.0f : 12.0f) * (1.0f / 8192.0f);
+        return;
+    }
+    if (type == 0xB0u && d1 == 1) {                          /* the mod wheel */
+        if (opt[OPT_WHEEL])
+            eng_wheel = (f32)(d2 & 127u) * (1.0f / 127.0f);
+        return;
+    }
+    if (type == 0xB0u && d1 == 64) {                         /* the sustain pedal */
+        if (opt[OPT_PEDAL])
+            eng_post(EV_SUSTAIN, d2 >= 64u);
+        return;
+    }
     if (type == 0x90u && d2)
         eng_post_note(1, d1 & 127, d2 & 127, 1);             /* with its velocity */
     else if (type == 0x80u || type == 0x90u)
@@ -437,6 +638,12 @@ SMALL void h1_button(int btn, int down)
         return;
     if (!down) {
         btn_held &= ~(1u << btn);
+        if (btn == H1_BTN_PLAY) {
+            if (lv_defer && !lv_used && now - btn_ms[btn] < 600u)
+                eng_post(EV_PLAY, 0);
+            lv_play = lv_defer = 0;
+            lv_key = -1;
+        }
         /* a button with a hold does its tap on the way up, and only if the hold never fired */
         if (btn_fired[btn])
             return;
@@ -453,14 +660,18 @@ SMALL void h1_button(int btn, int down)
             page = PG_HOME;
         }
         if (btn == H1_BTN_SAVE) {
-            dirty = 1;
+            dirty = save_asked = 1;
             dirty_ms = now - 5000u;
             toast("SAVED", 0, 0, 0, -1);
         }
         if (btn == H1_BTN_EDIT) {
             if (seq.mode == SEQ_STEP && seq.write && page == PG_HOME)
                 eng_post(EV_STEP_REST, 0);       /* writing steps: a rest */
-            else if (insts[st.inst] == &inst_blab && page == PG_HOME)
+            else if (page != PG_HOME) {          /* on a page: home, with the knob strip up (#49) */
+                page = PG_HOME;
+                st.hud = 1;
+                mark_dirty();
+            } else if (insts[st.inst] == &inst_blab)
                 write_mode(!blab_writing);       /* BLAB: WRITE */
             else {
                 st.hud ^= 1;
@@ -474,6 +685,17 @@ SMALL void h1_button(int btn, int down)
     btn_held |= 1u << btn;
     btn_ms[btn] = now;
     btn_fired[btn] = 0;
+    if (clear_all) {                             /* asked "TAP REC: CLEAR ALL": REC clears, anything else is a no */
+        clear_all = 0;
+        if (btn == H1_BTN_REC) {
+            btn_fired[btn] = 3;
+            eng_post(EV_CLEAR, 0);
+            toast("ALL CLEARED", 0, 0, 0, -1);
+            return;
+        }
+    }
+    if (layview_button(btn))
+        return;
     /* SEQ and REC together: LAYERS. Whichever lands second makes the pair, and neither then does what
      * it does alone (a pair made after one of them has already done its hold does nothing). */
     if (btn == H1_BTN_SEQ || btn == H1_BTN_REC) {
@@ -494,7 +716,14 @@ SMALL void h1_button(int btn, int down)
     case H1_BTN_ENV: open_page(PG_ENV); break;
     case H1_BTN_LFO: open_page(PG_LFO); break;
     case H1_BTN_ARP: open_page(PG_ARP); break;
-    case H1_BTN_PLAY: eng_post(EV_PLAY, 0); break;
+    case H1_BTN_PLAY:
+        lv_used = 0;
+        lv_key = -1;
+        lv_play = st.seq[6];                     /* LAYERS: held, the layer view */
+        lv_defer = lv_play && seq_running();     /* (running: it stops on the way up, if PLAY was only tapped) */
+        if (!lv_defer)
+            eng_post(EV_PLAY, 0);
+        break;
     case H1_BTN_OCTDN:
     case H1_BTN_OCTUP: {
         int both = (btn_held & (1u << (btn == H1_BTN_OCTUP ? H1_BTN_OCTDN : H1_BTN_OCTUP))) != 0;
@@ -544,6 +773,7 @@ void h1_toast(const char *text)
 
 static APART void holds(void)
 {
+    layview_hold();
     /* hold EDIT: the ring comes up with the volume of the instrument in hand, for SELECT to turn. (A
      * turn of SELECT before that does the same at once: h1_encoder.) */
     if ((btn_held & (1u << H1_BTN_EDIT)) && !btn_fired[H1_BTN_EDIT] && now - btn_ms[H1_BTN_EDIT] > HOLD_EDIT) {
@@ -567,10 +797,14 @@ static APART void holds(void)
         }
     }
     if ((btn_held & (1u << H1_BTN_REC)) && btn_fired[H1_BTN_REC] == 2 && now - btn_ms[H1_BTN_REC] > 3000u) {
-        btn_fired[H1_BTN_REC] = 1;
-        eng_post(EV_CLEAR, 0);
-        toast("ALL CLEARED", 0, 0, 0, -1);
+        btn_fired[H1_BTN_REC] = 1;               /* the lot only once REC is pressed again: no clearing it all by
+                                                  * holding a moment too long (#49) */
+        clear_all_ms = now;
+        clear_all = 1;
+        toast("TAP REC: CLEAR ALL", 0, 0, 0, -1);
     }
+    if (clear_all && now - clear_all_ms > 3000u)
+        clear_all = 0;
     if ((btn_held & (1u << H1_BTN_SEQ)) && !btn_fired[H1_BTN_SEQ] && now - btn_ms[H1_BTN_SEQ] > 550u) {
         btn_fired[H1_BTN_SEQ] = 1;
         set_seq_mode(st.seq[0] == SEQ_STEP ? SEQ_LOOP : SEQ_STEP);
@@ -681,7 +915,7 @@ static void set_knob(int i, int v)
     knob_touch[i] = 0.0f;
     mark_dirty();
     if (*k != was && eng_midi_fn)                /* out as CC 20-23, as they come in */
-        eng_midi_fn(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
+        eng_mout3(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
 }
 
 static APART void set_param(int i, int v)
@@ -696,9 +930,20 @@ static APART void set_param(int i, int v)
         set_seq_mode(v);
         return;
     }
+    if (page == PG_MIDI && i == OPT_CHAN)
+        eng_mout3(0xB0u, 123u, 0u);              /* (what was sent on the old channel is let go there) */
     *q = (uint8_t)v;
-    if (page == PG_KEYS && i == 3 && !v)
+    if (page == PG_KEYS && i == 3 && v != 1)
         eng_post(EV_UNLATCH, 0);
+    if (page == PG_MIDI || page == PG_SETUP) {
+        opt_pack();
+        if (page == PG_MIDI && i == OPT_PEDAL && !v)
+            eng_post(EV_SUSTAIN, 0);             /* (a pedal down when it was switched off lets go) */
+        if (page == PG_MIDI && i == OPT_BEND && !v)
+            eng_bend = 0.0f;
+        if (page == PG_MIDI && i == OPT_WHEEL && !v)
+            eng_wheel = 0.0f;
+    }
     mark_dirty();
 }
 
@@ -716,7 +961,9 @@ SMALL void h1_encoder(int enc, int d)
         set_algo(st.ip[st.inst].algo + d);
         break;
     case H1_ENC_SELECT:
-        if (btn_held & (1u << H1_BTN_EDIT)) {    /* EDIT held: the instrument's volume, on any page */
+        if (lv_play && lv_key >= 0)              /* the layer view, a layer's key held: its volume */
+            layview_volume(accel(enc, d));
+        else if (btn_held & (1u << H1_BTN_EDIT)) {    /* EDIT held: the instrument's volume, on any page */
             btn_fired[H1_BTN_EDIT] = 1;
             set_inst_vol(INST_VOL(st.inst) + accel(enc, d));
         } else if (step_cursor_live())
@@ -880,6 +1127,12 @@ static APART void draw_name(void)
     g_dim(a);
     g_text(120.0f, y, name, size, maxf(3.0f, size * 0.13f), 1.0f, 1);
     g_dim(1.0f);
+}
+
+static APART void draw_still(void)
+{
+    fit_text(120.0f, 92.0f, insts[st.inst]->name, 40.0f, 200.0f, 0.9f);
+    fit_text(120.0f, 146.0f, insts[st.inst]->algo[st.ip[st.inst].algo], 14.0f, 200.0f, 0.5f);
 }
 
 static APART void draw_hud(void)
@@ -1102,7 +1355,7 @@ static APART void draw_page(void)
         g_rect(229.0f, 40.0f, 11.0f, 14.0f, 0.0f);
         g_mode(G_MAX);
     }
-    for (i = 1; i < NPAGE; i++)                  /* the panel's two rows of six: a square where a button has a page */
+    for (i = 1; i < PG_BUTTONS; i++)             /* the panel's two rows of six: a square where a button has a page */
         rsquare(165.0f + (f32)PAGE_AT[i][0] * 11.0f, 12.0f + (f32)PAGE_AT[i][1] * 11.0f, 8.0f, i == page ? 1.0f : 0.3f);
     for (i = 0; i < 4; i++) {
         const ParamDef *p = page_param(page, i);
@@ -1202,7 +1455,10 @@ void ui_frame(uint32_t now_ms)
     if (page == PG_HOME) {
         /* the art sits back while the name is up, then comes forward */
         g_dim(name_t < 0.55f ? 0.3f : 0.3f + 0.7f * smooth01((name_t - 0.55f) / 0.4f));
-        insts[st.inst]->draw(&vis);
+        if (opt[OPT_ANIM])                       /* SETUP ANIM OFF: no picture, the name and the algorithm still */
+            draw_still();
+        else
+            insts[st.inst]->draw(&vis);
         g_dim(1.0f);
         g_mode(G_MAX);
         g_origin(0.0f, 0.0f);
@@ -1215,6 +1471,8 @@ void ui_frame(uint32_t now_ms)
         draw_seq_mark();
         draw_toast();
     }
+    if (layview_on())
+        draw_layview();
     draw_volume(dt);
     vis.fresh = 0;
     vis.enter += dt;
@@ -1232,6 +1490,9 @@ SMALL void ui_init(void)
     dirty = 0;                                   /* what is in RAM is what was loaded: nothing to save */
     btn_held = 0;                                /* (and no button is down) */
     ring_kind = 0;
+    lv_play = lv_defer = 0;
+    lv_key = -1;
+    clear_all = 0;
     glob_held = -1;
     master_raw = -1;
     ring_t = 9.0f;
@@ -1372,17 +1633,21 @@ uint32_t h1_key_leds(void)
     uint32_t m;
     if (writing())                               /* WRITE: the vowels lit, and the space */
         return 1u << 0 | 1u << 4 | 1u << 8 | 1u << 14 | 1u << 20 | 1u << 26;
-    if (eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
-        return m;                                           /* the sequencer has the keys while it runs */
+    /* The sequencer has the keys on the SEQ page and while steps are written; elsewhere they show what
+     * sounds, as they do while playing alone (#49). SETUP's LEDS SEQ: the sequencer has them while it runs. */
+    if (layview_on())
+        return layview_leds();
+    if ((page == PG_SEQ || seq.write || opt[OPT_LEDS]) && eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
+        return m;
     return eng_sounding_lo();
 }
 
 uint32_t h1_button_leds(void)
 {
-    static const int8_t PAGE_BTN[NPAGE] = {H1_BTN_HOME, H1_BTN_FX, H1_BTN_SEL, H1_BTN_ENV, H1_BTN_LFO, H1_BTN_GLO, H1_BTN_ARP, H1_BTN_SEQ};
+    static const int8_t PAGE_BTN[PG_BUTTONS] = {H1_BTN_HOME, H1_BTN_FX, H1_BTN_SEL, H1_BTN_ENV, H1_BTN_LFO, H1_BTN_GLO, H1_BTN_ARP, H1_BTN_SEQ};
     uint32_t m = 0;
     int s = seq.mode == SEQ_LOOP ? seq.loop_state : LOOP_EMPTY, blink = fractf(tsec * 2.5f) < 0.5f;
-    if (page != PG_HOME)
+    if (page != PG_HOME && page < PG_BUTTONS)
         m |= 1u << PAGE_BTN[page];
     if (st.ip[st.inst].arp[0] && (page == PG_ARP || vis.beat < 0.25f))
         m |= 1u << H1_BTN_ARP;
@@ -1401,4 +1666,5 @@ uint32_t h1_button_leds(void)
 
 /* ---- saved state ------------------------------------------------------------------------ */
 int h1_state_dirty(void) { return dirty && now - dirty_ms > 1500u; }
-void h1_state_saved(void) { dirty = 0; }
+int h1_state_asked(void) { return save_asked; }
+void h1_state_saved(void) { dirty = save_asked = 0; }

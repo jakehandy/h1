@@ -95,10 +95,10 @@ static void cozy_render(Voice *v, const Blk *b, f32 *out, int n)
         switch (algo) {
         default:
         case 0:                                  /* TINE: a soft bar, and a hard little bell that is gone at once */
-            x = tsin(p0 + a->idx * (0.25f + 0.75f * body) * key * 0.5f * tsin(p1)) + 0.3f * hit * tsin(p2);
+            x = tsin(p0 + a->idx * VEL_FM(v) * (0.25f + 0.75f * body) * key * 0.5f * tsin(p1)) + 0.3f * hit * tsin(p2);
             break;
         case 1:                                  /* REED: it barks when you dig in */
-            fb = tsin(p0 + a->idx * (0.2f + 0.8f * hit) * 0.3f * fb + 0.25f * body * tsin(p1));
+            fb = tsin(p0 + a->idx * VEL_FM(v) * (0.2f + 0.8f * hit) * 0.3f * fb + 0.25f * body * tsin(p1));
             x = fb;
             break;
         case 2:                                  /* FELT: four partials going flat of each other, and the thump of the hammer */
@@ -350,7 +350,7 @@ static APART void pot(const Vis *vis)
         pot_seen = vis->hand;
         if (pot_idle > 3.0f)                     /* (ready again once the playing has stopped) */
             pot_done = 0;
-        if (vis->hand_pitch == pot_p && !pot_done && pot_v == 0.0f)
+        if (vis->hand_pitch == pot_p && !pot_done && pot_v == 0.0f && EGGS_ON)
             pot_x += 2.6f;
         pot_p = vis->hand_pitch;
         pot_idle = 0.0f;

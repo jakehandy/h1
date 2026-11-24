@@ -377,6 +377,9 @@ static void ring_drop(void)
     ring.to = -1;
 }
 
+static int er_slot = -1;
+static uint32_t er_k;
+
 /* every frame: a page of a save under way, or a save begun, or (stopped and silent) a slot erased */
 static void ring_step(void)
 {
@@ -443,12 +446,26 @@ static void ring_step(void)
             }
         }
     }
-    if (h1_loop_quiet() && !h1_voices_active())  /* stopped and silent: one slot back to erased (the sound stalls) */
-        for (i = 0; i < (int)RING_SLOTS; i++)
-            if (ring.fill[i] != 0 && i != ring.cur && i != ring.to) {
-                ring_erase(i);
+    /* stopped and silent: a slot back to erased, one 4 KiB sector a frame (each one stalls the sound for
+     * ~17 ms: five in a row were a cut long enough to hear, and to see in the LEDs, #58 #64). A slot part
+     * erased is full until it is done, so no save goes into it; a power-off part way leaves it to ring_start. */
+    if (h1_loop_quiet() && h1_silent()) {
+        if (er_slot < 0)
+            for (i = 0; i < (int)RING_SLOTS; i++)
+                if (ring.fill[i] != 0 && i != ring.cur && i != ring.to) {
+                    er_slot = i;
+                    er_k = 0;
+                    ring.fill[i] = RING_FULL;
+                    break;
+                }
+        if (er_slot >= 0) {
+            uint32_t at = 0, len = 0, seq = 0;
+            if (plat_data_erase(ring_off(er_slot) + er_k * 4096u) == 0 && ++er_k < RING_SECT)
                 return;
-            }
+            ring.fill[er_slot] = ring_scan(er_slot, &at, &len, &seq);
+            er_slot = -1;
+        }
+    }
 }
 
 #ifdef PLAT_HOST
@@ -516,15 +533,97 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 
 void app_panic(void) { h1_midi(0xB0, 123, 0); }
 
-void app_splash(void) { lcd_fill(0, 0, 240, 240, 0); }
+/* ---- the panel's setup (0.3.1) ----------------------------------------------------------------
+ * fm1-base's lcd_init resets the ST7789V and sets it up (fm1.toml lcd_panel: M-VAVE's register values
+ * too). Newer FM-1s, the ones with the FM-1/M-VAVE logo under the screen, came back washed out, without
+ * reds, or blank. So the same register values go once more here in the order M-VAVE's own firmware sends
+ * them (display off, sleep out, porch, gate, VCOM, power, gammas, then pixel format, scan, inversion and
+ * display on), with its two extra settings: the second data line off (E7) and full brightness (51).
+ *
+ * The panel's clock: M-VAVE's firmware runs it at 12 MHz, fm1-base at 60 (about 44 measured), which the
+ * older panels take. SETUP's SCREEN: AUTO is 12 MHz on the newer FM-1s (told apart by their flash, the
+ * UC25HQ80, JEDEC B3 60 14) and 60 on the older; FAST is 60 on any; SAFE is 12 on any. */
+#ifndef PLAT_HOST
+static const uint8_t SCR_SEQ[] = {         /* command, count, the bytes; command 0: wait that many ms */
+    0x28, 0, 0x00, 100,                      /* DISPOFF */
+    0x11, 0, 0x00, 120,                      /* SLPOUT */
+    0xB2, 5, 0x0C, 0x0C, 0x0C, 0x00, 0x33,   /* PORCTRL */
+    0xB7, 1, 0x56,                           /* GCTRL */
+    0xBB, 1, 0x18,                           /* VCOMS */
+    0xC0, 1, 0x2C,                           /* LCMCTRL */
+    0xC2, 1, 0x01,                           /* VDVVRHEN */
+    0xC3, 1, 0x1F,                           /* VRHS */
+    0xC4, 1, 0x20,                           /* VDVS */
+    0xC6, 1, 0x0F,                           /* FRCTRL2: 60 Hz */
+    0xD0, 2, 0xA6, 0xA1,                     /* PWCTRL1 */
+    0xE0, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,
+    0xE1, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,
+    0x36, 1, 0x00,                           /* MADCTL */
+    0x3A, 1, 0x55,                           /* COLMOD: RGB565 */
+    0xE7, 1, 0x00,                           /* SPI2EN: one data line */
+    0x51, 1, 0xFF,                           /* WRDISBV: full */
+    0x21, 0,                                 /* INVON */
+    0x13, 0,                                 /* NORON */
+};
+#define SCR_SLOW 4u                        /* 12 MHz, M-VAVE's own */
+static int scr_new;                        /* a newer FM-1 (its flash part) */
+static int scr_speed = -1;
+
+static void scr_setup(void)
+{
+    uint32_t r, i;
+    scr_new = fl_jedec() == 0xB36014u;
+    fm1_lcd_baud(SCR_SLOW);                /* (the setup itself always at the slow clock) */
+    for (r = 0; r < sizeof SCR_SEQ; r += 2u + (SCR_SEQ[r] ? SCR_SEQ[r + 1u] : 0u)) {
+        if (!SCR_SEQ[r]) {
+            lcd_spin(SCR_SEQ[r + 1u] * 25000u);    /* (~1 ms a unit, as fm1-base's init waits) */
+            continue;
+        }
+        lcd_cmd(SCR_SEQ[r]);
+        for (i = 0; i < SCR_SEQ[r + 1u]; i++)
+            lcd_small[16u + i] = SCR_SEQ[r + 2u + i];
+        if (SCR_SEQ[r + 1u])
+            lcd_data(lcd_small + 16, SCR_SEQ[r + 1u]);
+    }
+    lcd_sync();
+}
+
+static void scr_clock(void)                /* SETUP's SCREEN, whenever it changes */
+{
+    int s = h1_screen(), slow = s == 2 || (s == 0 && scr_new);
+    if (s == scr_speed)
+        return;
+    scr_speed = s;
+    lcd_sync();
+    fm1_lcd_baud(slow ? SCR_SLOW : LCD_BAUD);
+}
+#else
+static void scr_setup(void) {}
+static void scr_clock(void) {}
+#endif
+
+void app_splash(void)
+{
+    scr_setup();
+    lcd_fill(0, 0, 240, 240, 0);
+#ifndef PLAT_HOST
+    lcd_cmd(0x29);                           /* DISPON (again: the DISPOFF above) */
+#endif
+}
 
 void app_ui_init(void) { lcd_fill(0, 0, 240, 240, 0); }
+
+static void ex_step(void);
+static uint32_t dirty_ms;                   /* when the state was first waiting to be saved, with no note sounding */
+static int dirty_wait;
 
 void app_frame(void)
 {
     uint32_t t0, t1, t2;
+    scr_clock();
     input();
     usb_news();
+    ex_step();
     h1_master((int)(plat_master() * 1000u / 4096u));        /* shown while it turns; the gain is app_render's */
     t0 = plat_ticks24();
     h1_frame(plat_ms());                                    /* (and most of the last frame goes out meanwhile) */
@@ -545,9 +644,18 @@ void app_frame(void)
     speak();
     /* the state's save erases flash, which stalls the sound for a moment: only when nothing is sounding. The
      * loop goes into its ring a page a frame, playing or not (ring_step). */
-    if (h1_state_dirty() && !h1_voices_active()) {
+    /* (and not while an echo or a reverb still rings, either: the stall cuts its tail, #58. With no note
+     * sounding for half a minute, a tail that never ends does not keep a change from being saved.) */
+    if (!h1_state_dirty() || h1_voices_active())
+        dirty_wait = 0;
+    else if (!dirty_wait) {
+        dirty_wait = 1;
+        dirty_ms = plat_ms();
+    }
+    if (dirty_wait && (h1_silent() || h1_state_asked() || plat_ms() - dirty_ms > 30000u)) {
         uint32_t size;
         const void *p = h1_state(&size);
+        dirty_wait = 0;
         if (plat_store_save(OBJ_STATE, p, size) == 0)
             h1_state_saved();
     } else
@@ -555,6 +663,107 @@ void app_frame(void)
 }
 
 void app_input_only(void) { input(); }
+
+/* ---- the loop out to a computer, for a .mid (0.3.1) --------------------------------------------
+ * A page on the computer (jakehandy.com/h1/midi) asks over USB MIDI with F0 7D 68 31 4C F7 ("h1" "L") and
+ * gets the loop as it is recorded, every note with its time, velocity, instrument and layer, and makes the
+ * file there. So the FM-1 needs no file format of its own and no storage: a few hundred bytes of code.
+ * Every frame is F0 7D 68 31, a letter, then 7-bit bytes (each 7 bytes as an eighth of their top bits and
+ * the seven low ones) and F7:
+ *   'H'  h1_loop_export's meta (H1_META_N bytes), then the blob's length (4 bytes, little-endian)
+ *   'D'  the chunk's number (two 7-bit bytes, low first), then up to EX_CHUNK bytes of the blob
+ *   'E'  the CRC-32 of the blob as sent (4 bytes), the end
+ *   'X'  given up: the loop changed while it went (a take), or the computer stopped reading
+ * One frame a main-loop frame, and only into room the ring has: the sound and the screen go on. */
+#define EX_CHUNK 196u                            /* 28 groups of 7: 224 bytes on the wire */
+static struct {
+    const uint8_t *p;
+    uint32_t n, at, gen, crc;
+    uint16_t chunk;
+    uint8_t meta[H1_META_N];
+    uint8_t state;                               /* 0 idle, 1 the header next, 2 data, 3 the end */
+} ex;
+static uint8_t ex_frame[8 + EX_CHUNK + EX_CHUNK / 7u + 2u];
+
+static uint32_t ex_pack(uint8_t *d, const uint8_t *s, uint32_t n)   /* 7 bytes -> 8 */
+{
+    uint32_t o = 0, i, k;
+    for (i = 0; i < n; i += 7u) {
+        uint8_t hi = 0;
+        uint32_t m = n - i < 7u ? n - i : 7u;
+        for (k = 0; k < m; k++)
+            hi |= (uint8_t)((s[i + k] >> 7) << k);
+        d[o++] = hi;
+        for (k = 0; k < m; k++)
+            d[o++] = s[i + k] & 0x7Fu;
+    }
+    return o;
+}
+
+static void ex_send(uint8_t kind, const uint8_t *pre, uint32_t npre, const uint8_t *body, uint32_t nbody)
+{
+    uint32_t o = 0;
+    ex_frame[o++] = 0xF0; ex_frame[o++] = 0x7D; ex_frame[o++] = 0x68; ex_frame[o++] = 0x31; ex_frame[o++] = kind;
+    while (npre--)
+        ex_frame[o++] = *pre++;
+    o += ex_pack(ex_frame + o, body, nbody);
+    ex_frame[o++] = 0xF7;
+    if (plat_sysex_send(ex_frame, o) != 0 && kind != 'X') {
+        ex.state = 0;                            /* (nobody reading: given up) */
+        h1_toast("LOOP NOT SENT");
+    }
+}
+
+int app_sysex(const uint8_t *p, uint32_t n)
+{
+    if (n < 4u || p[0] != 0x7Du || p[1] != 0x68u || p[2] != 0x31u || p[3] != 0x4Cu)
+        return 0;
+    ex.p = (const uint8_t *)h1_loop_export(&ex.n, ex.meta);
+    ex.gen = h1_loop_gen();
+    ex.at = 0;
+    ex.chunk = 0;
+    ex.crc = 0xFFFFFFFFu;
+    ex.state = 1;
+    h1_toast("SENDING LOOP");
+    return 1;
+}
+
+static void ex_step(void)
+{
+    uint8_t b[H1_META_N + 4];
+    uint32_t k;
+    if (!ex.state || plat_sysex_room() < sizeof ex_frame)
+        return;
+    if (h1_loop_gen() != ex.gen) {
+        ex.state = 0;
+        ex_send('X', 0, 0, 0, 0);
+        h1_toast("LOOP CHANGED");
+        return;
+    }
+    if (ex.state == 1) {
+        for (k = 0; k < H1_META_N; k++)
+            b[k] = ex.meta[k];
+        wr32(b + H1_META_N, ex.n);
+        ex.state = 2;
+        ex_send('H', 0, 0, b, sizeof b);
+    } else if (ex.state == 2) {
+        uint8_t no[2];
+        k = ex.n - ex.at < EX_CHUNK ? ex.n - ex.at : EX_CHUNK;
+        no[0] = (uint8_t)(ex.chunk & 0x7Fu);
+        no[1] = (uint8_t)(ex.chunk >> 7 & 0x7Fu);
+        ex.crc = crc32_run(ex.crc, ex.p + ex.at, k);
+        ex.at += k;
+        ex.chunk++;
+        if (ex.at >= ex.n)
+            ex.state = 3;
+        ex_send('D', no, 2, ex.p + ex.at - k, k);
+    } else {
+        wr32(b, ~ex.crc);
+        ex.state = 0;
+        ex_send('E', 0, 0, b, 4);
+        h1_toast("LOOP SENT");
+    }
+}
 
 /* ---- a screen reader (fm1-reader) ------------------------------------------------------------
  * The picture is not text, so the reader hears what the controls are set to: the instrument and

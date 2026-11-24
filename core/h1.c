@@ -39,9 +39,39 @@ static void defaults(void)
         inst_default(i);
 }
 
+uint8_t opt[NOPT];
+static const uint8_t OPT_MAX[NOPT] = {16, 2, 1, 1, 1, 1, 2, 1};
+
+/* rsv[0]: the channel (0 all, 1..16), PEDAL << 5, WHEEL << 6, LEDS << 7. rsv[1]: BEND, ANIM << 2, EGGS << 3,
+ * SCREEN << 4. */
+SMALL void opt_unpack(void)
+{
+    int i;
+    opt[OPT_CHAN] = st.rsv[0] & 31u;
+    opt[OPT_PEDAL] = st.rsv[0] >> 5 & 1u;
+    opt[OPT_WHEEL] = st.rsv[0] >> 6 & 1u;
+    opt[OPT_LEDS] = st.rsv[0] >> 7 & 1u;
+    opt[OPT_BEND] = st.rsv[1] & 3u;
+    opt[OPT_ANIM] = st.rsv[1] >> 2 & 1u;
+    opt[OPT_EGGS] = st.rsv[1] >> 3 & 1u;
+    opt[OPT_SCREEN] = st.rsv[1] >> 4 & 3u;
+    for (i = 0; i < NOPT; i++)
+        if (opt[i] > OPT_MAX[i])
+            opt[i] = 0;
+    opt_pack();
+}
+
+SMALL void opt_pack(void)
+{
+    st.rsv[0] = (uint8_t)(opt[OPT_CHAN] | opt[OPT_PEDAL] << 5 | opt[OPT_WHEEL] << 6 | opt[OPT_LEDS] << 7);
+    st.rsv[1] = (uint8_t)(opt[OPT_BEND] | opt[OPT_ANIM] << 2 | opt[OPT_EGGS] << 3 | opt[OPT_SCREEN] << 4);
+    st.rsv[2] = st.rsv[3] = 0;
+}
+
 SMALL void h1_init(uint32_t sample_rate)
 {
     defaults();
+    opt_unpack();
     eng_init(sample_rate);
     ui_init();
 }
@@ -71,6 +101,7 @@ typedef char v9_is_3344_bytes[sizeof(H1V9) == 3344u ? 1 : -1];
 typedef char v10_is_3636_bytes[sizeof(H1State) == 3636u ? 1 : -1];
 typedef char old_head_is_the_same[offsetof(H1Old, ip) == offsetof(H1State, ip) ? 1 : -1];
 typedef char the_slots_hold_the_instruments[NINST <= NSLOT && NSLOT * NALGO < 255 ? 1 : -1];
+typedef char meta_holds_the_layers[H1_META_N == 6 + 3 * NLAYER ? 1 : -1];
 typedef char v10_fits_a_store_object[sizeof(H1State) <= 3840u ? 1 : -1];
 static void bytes(void *to, const uint8_t *from, uint32_t n)
 {
@@ -106,6 +137,7 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
         bytes(st.ip, b + offsetof(H1V9, ip), (uint32_t)sizeof(((H1V9 *)0)->ip));
         bytes(st.ink, b + offsetof(H1V9, ink), (uint32_t)sizeof(((H1V9 *)0)->ink));
         st.ninst = b[offsetof(H1V9, ninst)];
+        bytes(st.rsv, b + offsetof(H1V9, rsv), (uint32_t)sizeof st.rsv);    /* (0.3.1's MIDI and SETUP settings) */
         bytes(st.steps, b + offsetof(H1V9, steps), (uint32_t)sizeof st.steps);
         bytes(st.step_part, b + offsetof(H1V9, step_part), (uint32_t)sizeof st.step_part);
         bytes(st.knob, b + offsetof(H1V9, knob), (uint32_t)sizeof(((H1V9 *)0)->knob));
@@ -174,8 +206,7 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
         if (i < NINST)
             inst_default(i);
     }
-    for (n = 0; n < sizeof st.rsv; n++)
-        st.rsv[n] = 0;
+    opt_unpack();                                /* (0.3.0 and before kept zeros there: every setting as it was) */
     st.ninst = NINST;
     st.version = H1_VERSION;
     for (n = 0; n < NWORDS; n++) {               /* BLAB's words: letters and spaces, ended */
@@ -226,7 +257,8 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
             continue;
         }
         l->open = 0;
-        l->rsv[0] = l->rsv[1] = 0;
+        if (l->rsv[0] > 100) l->rsv[0] = 0;      /* how far the layer is turned down */
+        l->rsv[1] &= LAY_MUTE | LAY_SOLO;
         for (j = 0; j < 4; j++) {
             if (l->knob[j] > 100) l->knob[j] = 100;
             if (l->env[j] > 100) l->env[j] = 100;
@@ -249,6 +281,10 @@ int h1_instrument_count(void) { return NINST; }
 const char *h1_knob_name(int inst, int k) { return inst >= 0 && inst < NINST && k >= 0 && k < 4 ? insts[inst]->knob[k] : ""; }
 const char *h1_algo_name(int inst, int a) { return inst >= 0 && inst < NINST && a >= 0 && a < NALGOS(inst) ? insts[inst]->algo[a] : ""; }
 uint32_t h1_voices_active(void) { return eng_voices(); }
+int h1_silent(void) { return eng_silent(); }
+void h1_load(int pct) { eng_load(pct); }
+int h1_screen(void) { return opt[OPT_SCREEN]; }
+int h1_midi_channel(void) { return opt[OPT_CHAN]; }
 
 void h1_ink(int inst, uint8_t rgb[3])
 {
@@ -275,6 +311,27 @@ const void *h1_loop(uint32_t *size)
     const void *p;
     loop_given_gen = eng_loop_gen();
     p = eng_loop_blob(&n);
+    if (size)
+        *size = n;
+    return p;
+}
+
+SMALL const void *h1_loop_export(uint32_t *size, uint8_t meta[H1_META_N])
+{
+    uint32_t n;
+    const void *p = eng_loop_blob(&n);
+    int i;
+    meta[0] = 1;
+    meta[1] = st.glo[0];
+    meta[2] = st.seq[2];
+    meta[3] = st.seq[1];
+    meta[4] = st.glo[1];
+    meta[5] = NINST;
+    for (i = 0; i < NLAYER; i++) {
+        meta[6 + i] = st.layer[i].part;
+        meta[22 + i] = st.layer[i].rsv[0];
+        meta[38 + i] = st.layer[i].rsv[1];
+    }
     if (size)
         *size = n;
     return p;

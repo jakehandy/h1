@@ -237,6 +237,7 @@ int main(void)
         memcpy(v9.step_lay, s10->step_lay, sizeof v9.step_lay);
         memcpy(v9.layer, s10->layer, sizeof v9.layer);
         v9.version = 9;
+        v9.rsv[0] = 5;                           /* (0.3.1's MIDI channel 5) */
         st.knob[16][0][0] = 99;                  /* (BLAB's, as a 0.3.0 unit never had it: it must come up as new) */
         h1_init(44100);
         CHECK(sizeof v9 == 3344u && h1_state_load(&v9, sizeof v9) == 0, "a version 9 state loads");
@@ -247,6 +248,7 @@ int main(void)
                 break;
         CHECK(a == NALGO && st.ip[16].algo == 0 && st.ink[16][1] == insts[16]->ink[1], "BLAB as new");
         CHECK(st.version == H1_VERSION && st.ninst == NINST, "and it is version 10 now");
+        CHECK(opt[OPT_CHAN] == 5, "0.3.1's settings come over");
     }
 
     /* BLAB's WRITE: EDIT, then the keys are letters (26 a space), OCT- one back, both OCT clear; EDIT

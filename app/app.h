@@ -27,6 +27,10 @@ enum { OBJ_STATE, OBJ_PANEL, OBJ_LOOP, OBJ_NOBJ };
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
 #endif
 
+/* SysEx from the computer: the loop asked for as a .mid's makings (app.c, export) */
+#define APP_SYSEX
+int app_sysex(const uint8_t *p, uint32_t n);
+
 void app_init(void);
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12);
 void app_panic(void);

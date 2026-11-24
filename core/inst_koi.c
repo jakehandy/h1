@@ -486,7 +486,7 @@ static APART void frog_run(const Vis *vis)
             held += vis->v[i].on && vis->v[i].gate && !vis->v[i].seq;
         if (held < 2)
             frog_done = 0;
-        if (held >= 5 && !frog_done && frog <= 0.0f) {
+        if (held >= 5 && !frog_done && frog <= 0.0f && EGGS_ON) {
             frog_done = 1;
             frog = 1.0f;
             eng_cue(CUE_KOI);

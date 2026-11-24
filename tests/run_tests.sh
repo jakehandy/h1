@@ -13,6 +13,12 @@ out=app/build/host
 "$out/h1_host" tests/usbhost.txt "$out"
 # the loop kept through a power-off while it plays (#39), and one cut off in the middle of its save
 "$out/h1_host" tests/looppower.txt "$out"
+# the loop out to a computer (0.3.1): the frames read back into a .mid, checked note for note
+rm -f "$out/export.syx"
+"$out/h1_host" tests/export.txt "$out"
+python3 tools/h1_loop_mid.py "$out/export.syx" "$out/export.mid" > "$out/export.txt"
+cat "$out/export.txt"
+grep -q "h1 loop: 51 notes, 3 tracks" "$out/export.txt"
 # (that build has the second core, as the firmware does: the simulator runs its jobs at once, in order)
 # and the build without it: the same script
 FM1B_CPU2=0 ./build.sh --host
@@ -61,6 +67,10 @@ fi
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/*.c tests/eggs.c -o build/h1eggs -lm
 ASAN_OPTIONS=detect_leaks=0 build/h1eggs
+# 0.3.1: the stuck ARP note, HOLD ARP, the MIDI and SETUP pages saved, EDIT from any page, the layer view, the CPU guard, silence
+"${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
+    core/*.c tests/v031.c -o build/h1v031 -lm
+ASAN_OPTIONS=detect_leaks=0 build/h1v031
 # g_line against a distance worked out in floats at every pixel: never more than one ink level off
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/gfx.c tests/lines.c -o build/h1lines -lm
