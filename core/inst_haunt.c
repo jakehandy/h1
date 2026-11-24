@@ -360,7 +360,7 @@ static APART void eyes_run(const Vis *vis)
             tri_t += vis->dt;
         else
             tri_t = 0.0f, eyes_done = 0;
-        if (tri_t > 1.0f && !eyes_done && eyes <= 0.0f) {
+        if (tri_t > 1.0f && !eyes_done && eyes <= 0.0f && EGGS_ON) {
             eyes_done = 1;
             eyes = 1.0f;
             eng_cue(CUE_HAUNT);

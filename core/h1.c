@@ -39,9 +39,39 @@ static void defaults(void)
         inst_default(i);
 }
 
+uint8_t opt[NOPT];
+static const uint8_t OPT_MAX[NOPT] = {16, 2, 1, 1, 1, 1, 2, 1};
+
+/* rsv[0]: the channel (0 all, 1..16), PEDAL << 5, WHEEL << 6, LEDS << 7. rsv[1]: BEND, ANIM << 2, EGGS << 3,
+ * SCREEN << 4. */
+void opt_unpack(void)
+{
+    int i;
+    opt[OPT_CHAN] = st.rsv[0] & 31u;
+    opt[OPT_PEDAL] = st.rsv[0] >> 5 & 1u;
+    opt[OPT_WHEEL] = st.rsv[0] >> 6 & 1u;
+    opt[OPT_LEDS] = st.rsv[0] >> 7 & 1u;
+    opt[OPT_BEND] = st.rsv[1] & 3u;
+    opt[OPT_ANIM] = st.rsv[1] >> 2 & 1u;
+    opt[OPT_EGGS] = st.rsv[1] >> 3 & 1u;
+    opt[OPT_SCREEN] = st.rsv[1] >> 4 & 3u;
+    for (i = 0; i < NOPT; i++)
+        if (opt[i] > OPT_MAX[i])
+            opt[i] = 0;
+    opt_pack();
+}
+
+void opt_pack(void)
+{
+    st.rsv[0] = (uint8_t)(opt[OPT_CHAN] | opt[OPT_PEDAL] << 5 | opt[OPT_WHEEL] << 6 | opt[OPT_LEDS] << 7);
+    st.rsv[1] = (uint8_t)(opt[OPT_BEND] | opt[OPT_ANIM] << 2 | opt[OPT_EGGS] << 3 | opt[OPT_SCREEN] << 4);
+    st.rsv[2] = st.rsv[3] = 0;
+}
+
 SMALL void h1_init(uint32_t sample_rate)
 {
     defaults();
+    opt_unpack();
     eng_init(sample_rate);
     ui_init();
 }
@@ -157,8 +187,7 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
         if (i < NINST)
             inst_default(i);
     }
-    for (n = 0; n < sizeof st.rsv; n++)
-        st.rsv[n] = 0;
+    opt_unpack();                                /* (0.3.0 and before kept zeros there: every setting as it was) */
     st.ninst = NINST;
     st.version = H1_VERSION;
     if (st.inst >= NINST) st.inst = 0;
@@ -203,7 +232,8 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
             continue;
         }
         l->open = 0;
-        l->rsv[0] = l->rsv[1] = 0;
+        if (l->rsv[0] > 100) l->rsv[0] = 0;      /* how far the layer is turned down */
+        l->rsv[1] &= LAY_MUTE | LAY_SOLO;
         for (j = 0; j < 4; j++) {
             if (l->knob[j] > 100) l->knob[j] = 100;
             if (l->env[j] > 100) l->env[j] = 100;
@@ -226,6 +256,10 @@ int h1_instrument_count(void) { return NINST; }
 const char *h1_knob_name(int inst, int k) { return inst >= 0 && inst < NINST && k >= 0 && k < 4 ? insts[inst]->knob[k] : ""; }
 const char *h1_algo_name(int inst, int a) { return inst >= 0 && inst < NINST && a >= 0 && a < NALGOS(inst) ? insts[inst]->algo[a] : ""; }
 uint32_t h1_voices_active(void) { return eng_voices(); }
+int h1_silent(void) { return eng_silent(); }
+void h1_load(int pct) { eng_load(pct); }
+int h1_screen(void) { return opt[OPT_SCREEN]; }
+int h1_midi_channel(void) { return opt[OPT_CHAN]; }
 
 void h1_ink(int inst, uint8_t rgb[3])
 {

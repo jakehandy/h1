@@ -377,6 +377,9 @@ static void ring_drop(void)
     ring.to = -1;
 }
 
+static int er_slot = -1;
+static uint32_t er_k;
+
 /* every frame: a page of a save under way, or a save begun, or (stopped and silent) a slot erased */
 static void ring_step(void)
 {
@@ -443,12 +446,26 @@ static void ring_step(void)
             }
         }
     }
-    if (h1_loop_quiet() && !h1_voices_active())  /* stopped and silent: one slot back to erased (the sound stalls) */
-        for (i = 0; i < (int)RING_SLOTS; i++)
-            if (ring.fill[i] != 0 && i != ring.cur && i != ring.to) {
-                ring_erase(i);
+    /* stopped and silent: a slot back to erased, one 4 KiB sector a frame (each one stalls the sound for
+     * ~17 ms: five in a row were a cut long enough to hear, and to see in the LEDs, #58 #64). A slot part
+     * erased is full until it is done, so no save goes into it; a power-off part way leaves it to ring_start. */
+    if (h1_loop_quiet() && h1_silent()) {
+        if (er_slot < 0)
+            for (i = 0; i < (int)RING_SLOTS; i++)
+                if (ring.fill[i] != 0 && i != ring.cur && i != ring.to) {
+                    er_slot = i;
+                    er_k = 0;
+                    ring.fill[i] = RING_FULL;
+                    break;
+                }
+        if (er_slot >= 0) {
+            uint32_t at = 0, len = 0, seq = 0;
+            if (plat_data_erase(ring_off(er_slot) + er_k * 4096u) == 0 && ++er_k < RING_SECT)
                 return;
-            }
+            ring.fill[er_slot] = ring_scan(er_slot, &at, &len, &seq);
+            er_slot = -1;
+        }
+    }
 }
 
 #ifdef PLAT_HOST
@@ -520,6 +537,9 @@ void app_splash(void) { lcd_fill(0, 0, 240, 240, 0); }
 
 void app_ui_init(void) { lcd_fill(0, 0, 240, 240, 0); }
 
+static uint32_t dirty_ms;                   /* when the state was first waiting to be saved, with no note sounding */
+static int dirty_wait;
+
 void app_frame(void)
 {
     uint32_t t0, t1, t2;
@@ -545,9 +565,18 @@ void app_frame(void)
     speak();
     /* the state's save erases flash, which stalls the sound for a moment: only when nothing is sounding. The
      * loop goes into its ring a page a frame, playing or not (ring_step). */
-    if (h1_state_dirty() && !h1_voices_active()) {
+    /* (and not while an echo or a reverb still rings, either: the stall cuts its tail, #58. With no note
+     * sounding for half a minute, a tail that never ends does not keep a change from being saved.) */
+    if (!h1_state_dirty() || h1_voices_active())
+        dirty_wait = 0;
+    else if (!dirty_wait) {
+        dirty_wait = 1;
+        dirty_ms = plat_ms();
+    }
+    if (dirty_wait && (h1_silent() || h1_state_asked() || plat_ms() - dirty_ms > 30000u)) {
         uint32_t size;
         const void *p = h1_state(&size);
+        dirty_wait = 0;
         if (plat_store_save(OBJ_STATE, p, size) == 0)
             h1_state_saved();
     } else

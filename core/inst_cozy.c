@@ -350,7 +350,7 @@ static APART void pot(const Vis *vis)
         pot_seen = vis->hand;
         if (pot_idle > 3.0f)                     /* (ready again once the playing has stopped) */
             pot_done = 0;
-        if (vis->hand_pitch == pot_p && !pot_done && pot_v == 0.0f)
+        if (vis->hand_pitch == pot_p && !pot_done && pot_v == 0.0f && EGGS_ON)
             pot_x += 2.6f;
         pot_p = vis->hand_pitch;
         pot_idle = 0.0f;

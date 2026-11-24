@@ -267,7 +267,7 @@ static APART void one_up(const Vis *vis)
             run_n = vis->hand_pitch > run_p && run_t < 0.5f ? run_n + 1 : 1;
         run_p = vis->hand_pitch;
         run_t = 0.0f;
-        if (run_n == 8) {
+        if (run_n == 8 && EGGS_ON) {
             run_n = -1;
             up_t = 1.0f;
             hopv = -620.0f;

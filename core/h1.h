@@ -118,6 +118,11 @@ const char *h1_algo_name(int inst, int a);       /* eight per instrument, LAVA n
 void h1_ink(int inst, uint8_t rgb[3]);
 void h1_set_ink(int inst, uint8_t r, uint8_t g, uint8_t b);
 uint32_t h1_voices_active(void);
+int h1_state_asked(void);                         /* SAVE was pressed: save at once, silent or not */
+int h1_silent(void);                             /* no voice, and the output silent for half a second: flash may stall the sound */
+void h1_load(int pct);                           /* the port: the share of the block's time the last render took, for the CPU guard */
+int h1_screen(void);                             /* SETUP's SCREEN: 0 AUTO, 1 FAST, 2 SAFE (the port sets the panel's clock) */
+int h1_midi_channel(void);                       /* MIDI's CHAN: 0 every channel (out on 1), else 1..16, in and out */
 
 /* Every encoder as a number: returns what it is set to right now and (where the pointers are not
  * null) its range, the name of what it is tied to and its value as text. The simulator draws its

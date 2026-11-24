@@ -1066,7 +1066,7 @@ SMALL static void tilt_draw(const Vis *vis)
     M.heat = maxf(0.0f, M.heat - M.heat * 0.9f * dt);
     if (M.tilt > 0.0f)
         M.tilt -= dt;
-    else if (M.heat > 24.0f) {                   /* hammered: TILT */
+    else if (M.heat > 24.0f && EGGS_ON) {        /* hammered: TILT */
         M.tilt = 1.5f;
         M.heat = 0.0f;
         eng_cue(CUE_TILT);

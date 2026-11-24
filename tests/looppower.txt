@@ -72,6 +72,9 @@ expect peak_db_max -32
 press REC
 wait 3500
 release REC
+# (held that long it asks, and REC again clears it all, #49)
+wait 100
+tap REC
 wait 600
 tap REC
 wait 100
@@ -103,7 +106,8 @@ strum 0 15 30
 strum 0 15 30
 wait 300
 tap REC
-wait 250
+# (timed so the overdub lands while the take's save is under way)
+wait 240
 tap REC
 key 17 down
 wait 200

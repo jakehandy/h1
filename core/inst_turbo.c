@@ -257,7 +257,7 @@ static APART void mirror(const Vis *vis)
             cop_done = 0;
         fast_t = 0.0f;
         fast += 1.0f;
-        if (fast > 14.0f && !cop_done) {         /* a dozen notes a second, kept up for a couple of seconds */
+        if (fast > 14.0f && !cop_done && EGGS_ON) {         /* a dozen notes a second, kept up for a couple of seconds */
             cop_done = 1;
             cop = 1.0f;
             eng_cue(CUE_TURBO);
