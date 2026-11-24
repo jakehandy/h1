@@ -87,7 +87,7 @@ static void urchin_render(Voice *v, const Blk *b, f32 *out, int n)
     menv = B.floor + (1.0f - B.floor) * exp2fx(-v->age * B.mrate * 1.4427f);
     if (a->matt > 0.0f)
         menv *= 0.25f + 0.75f * sat(v->age / a->matt);
-    I1 = B.index * ks * menv;
+    I1 = B.index * ks * menv * VEL_FM(v);        /* (played softer, less bright) */
     dI = (I1 - I) / (f32)n;
     amp1 = a->adec > 0.0f ? exp2fx(-v->age * a->adec * B.along * (0.5f + 0.5f / ks)) : 1.0f;
     damp = (amp1 - amp) / (f32)n;

@@ -85,7 +85,7 @@ static void turbo_render(Voice *v, const Blk *b, f32 *out, int n)
     case 1: case 2: case 7: cut = 900.0f * exp2fx(T.glare * 4.2f); break;
     }
     svf_set(&fl, minf(cut, 15000.0f), q, b->isr);
-    fmi = (algo == 2 ? 0.9f : (algo == 7 ? 0.35f : 0.5f)) * (0.25f + 1.4f * T.glare);
+    fmi = (algo == 2 ? 0.9f : (algo == 7 ? 0.35f : 0.5f)) * (0.25f + 1.4f * T.glare) * VEL_FM(v);
 
     for (i = 0; i < n; i++) {
         f32 x;

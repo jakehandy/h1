@@ -77,7 +77,7 @@ static void orbit_render(Voice *v, const Blk *b, f32 *out, int n)
     cut = 110.0f * exp2fx(O.sweep * 6.6f);
     switch (algo) {
     default:
-    case 0: cut *= exp2fx(O.lfo * 0.9f); amp = sat(v->age * 4.0f); pw = 0.5f + 0.4f * tsin(spin_ph * 0.5f + v->r1); break;
+    case 0: cut *= exp2fx(O.lfo * 0.9f); amp = sat(v->age * 4.0f); pw = 0.5f + 0.4f * tsin(spin_ph + v->r1); break;   /* (a whole turn a SPIN: half of one jumped back as spin_ph wrapped) */
     case 1: {                                    /* PULSAR: the filter jumps to a new place on every tick */
         f32 tick = fractf(spin_ph * 4.0f + v->r1 * 0.0f);
         if (tick < v->s[7]) v->s[8] = rng_f(&v->u[0]);

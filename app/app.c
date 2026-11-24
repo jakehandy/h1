@@ -533,7 +533,83 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 
 void app_panic(void) { h1_midi(0xB0, 123, 0); }
 
-void app_splash(void) { lcd_fill(0, 0, 240, 240, 0); }
+/* ---- the panel's setup (0.3.1) ----------------------------------------------------------------
+ * fm1-base's lcd_init resets the ST7789V and sets it up (fm1.toml lcd_panel: M-VAVE's register values
+ * too). Newer FM-1s, the ones with the FM-1/M-VAVE logo under the screen, came back washed out, without
+ * reds, or blank. So the same register values go once more here in the order M-VAVE's own firmware sends
+ * them (display off, sleep out, porch, gate, VCOM, power, gammas, then pixel format, scan, inversion and
+ * display on), with its two extra settings: the second data line off (E7) and full brightness (51).
+ *
+ * The panel's clock: M-VAVE's firmware runs it at 12 MHz, fm1-base at 60 (about 44 measured), which the
+ * older panels take. SETUP's SCREEN: AUTO is 12 MHz on the newer FM-1s (told apart by their flash, the
+ * UC25HQ80, JEDEC B3 60 14) and 60 on the older; FAST is 60 on any; SAFE is 12 on any. */
+#ifndef PLAT_HOST
+static const uint8_t PANEL_SEQ[] = {         /* command, count, the bytes; command 0: wait that many ms */
+    0x28, 0, 0x00, 100,                      /* DISPOFF */
+    0x11, 0, 0x00, 120,                      /* SLPOUT */
+    0xB2, 5, 0x0C, 0x0C, 0x0C, 0x00, 0x33,   /* PORCTRL */
+    0xB7, 1, 0x56,                           /* GCTRL */
+    0xBB, 1, 0x18,                           /* VCOMS */
+    0xC0, 1, 0x2C,                           /* LCMCTRL */
+    0xC2, 1, 0x01,                           /* VDVVRHEN */
+    0xC3, 1, 0x1F,                           /* VRHS */
+    0xC4, 1, 0x20,                           /* VDVS */
+    0xC6, 1, 0x0F,                           /* FRCTRL2: 60 Hz */
+    0xD0, 2, 0xA6, 0xA1,                     /* PWCTRL1 */
+    0xE0, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,
+    0xE1, 14, 0xD0, 0x0D, 0x14, 0x0B, 0x0B, 0x07, 0x3A, 0x44, 0x50, 0x08, 0x13, 0x13, 0x2D, 0x32,
+    0x36, 1, 0x00,                           /* MADCTL */
+    0x3A, 1, 0x55,                           /* COLMOD: RGB565 */
+    0xE7, 1, 0x00,                           /* SPI2EN: one data line */
+    0x51, 1, 0xFF,                           /* WRDISBV: full */
+    0x21, 0,                                 /* INVON */
+    0x13, 0,                                 /* NORON */
+};
+#define PANEL_SLOW 4u                        /* 12 MHz, M-VAVE's own */
+static int panel_new;                        /* a newer FM-1 (its flash part) */
+static int panel_speed = -1;
+
+static void panel_setup(void)
+{
+    uint32_t r, i;
+    panel_new = fl_jedec() == 0xB36014u;
+    fm1_lcd_baud(PANEL_SLOW);                /* (the setup itself always at the slow clock) */
+    for (r = 0; r < sizeof PANEL_SEQ; r += 2u + (PANEL_SEQ[r] ? PANEL_SEQ[r + 1u] : 0u)) {
+        if (!PANEL_SEQ[r]) {
+            lcd_spin(PANEL_SEQ[r + 1u] * 25000u);    /* (~1 ms a unit, as fm1-base's init waits) */
+            continue;
+        }
+        lcd_cmd(PANEL_SEQ[r]);
+        for (i = 0; i < PANEL_SEQ[r + 1u]; i++)
+            lcd_small[16u + i] = PANEL_SEQ[r + 2u + i];
+        if (PANEL_SEQ[r + 1u])
+            lcd_data(lcd_small + 16, PANEL_SEQ[r + 1u]);
+    }
+    lcd_sync();
+}
+
+static void panel_clock(void)                /* SETUP's SCREEN, whenever it changes */
+{
+    int s = h1_screen(), slow = s == 2 || (s == 0 && panel_new);
+    if (s == panel_speed)
+        return;
+    panel_speed = s;
+    lcd_sync();
+    fm1_lcd_baud(slow ? PANEL_SLOW : LCD_BAUD);
+}
+#else
+static void panel_setup(void) {}
+static void panel_clock(void) {}
+#endif
+
+void app_splash(void)
+{
+    panel_setup();
+    lcd_fill(0, 0, 240, 240, 0);
+#ifndef PLAT_HOST
+    lcd_cmd(0x29);                           /* DISPON (again: the DISPOFF above) */
+#endif
+}
 
 void app_ui_init(void) { lcd_fill(0, 0, 240, 240, 0); }
 
@@ -543,6 +619,7 @@ static int dirty_wait;
 void app_frame(void)
 {
     uint32_t t0, t1, t2;
+    panel_clock();
     input();
     usb_news();
     h1_master((int)(plat_master() * 1000u / 4096u));        /* shown while it turns; the gain is app_render's */

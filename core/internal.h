@@ -105,6 +105,8 @@ typedef struct Layer {
     uint8_t lfo[4];
     uint8_t rsv[2];              /* [0] how far it is turned down, 0..100 (0: full); [1] LAY_MUTE, LAY_SOLO (0.3.1) */
 } Layer;
+/* An FM index by the note's velocity: the full index at 127 (every key of the panel), 0.3 of it at the softest */
+#define VEL_FM(v) (0.3f + 0.7f * (f32)(v)->vel * (1.0f / 127.0f))
 #define LAY_MUTE 1u
 #define LAY_SOLO 2u
 
