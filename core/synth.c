@@ -109,14 +109,19 @@ void eng_post_note(int on, int note, int vel, int from_midi)
          ((uint32_t)iclamp(vel, 1, 127) << 16) | (from_midi ? 1u << 23 : 0u));
 }
 
-/* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on channel 1. Not what came
- * in over MIDI (a computer that sends a note in would hear it echoed back). -------------------------- */
+/* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on channel 1 (or MIDI's
+ * CHAN). Not what came in over MIDI (a computer that sends a note in would hear it echoed back). ------ */
 void (*eng_midi_fn)(uint8_t status, uint8_t d1, uint8_t d2);
-static void mout(int on, int note, int vel)
+void eng_mout3(uint8_t status, uint8_t d1, uint8_t d2)
 {
     void (*fn)(uint8_t, uint8_t, uint8_t) = eng_midi_fn;
-    if (fn && note >= 0 && note < 128)
-        fn(on ? 0x90u : 0x80u, (uint8_t)note, (uint8_t)(on ? iclamp(vel, 1, 127) : 0));
+    if (fn)
+        fn((uint8_t)(status | (opt[OPT_CHAN] ? (opt[OPT_CHAN] - 1u) & 15u : 0u)), d1, d2);
+}
+static void mout(int on, int note, int vel)
+{
+    if (note >= 0 && note < 128)
+        eng_mout3(on ? 0x90u : 0x80u, (uint8_t)note, (uint8_t)(on ? iclamp(vel, 1, 127) : 0));
 }
 
 void dsp_init(void)
@@ -206,21 +211,23 @@ static void voice_on_part(int note, int part, int seq, int lay, int vel)
     Voice *v = 0;
     const Blk *b;
     f32 was;
-    int i, j, inst = PART_INST(part);
+    int i, j, g, inst = PART_INST(part);
     if (note < 0 || note > 127)
         return;
     for (i = 0; i < NVOICE && !v; i++)
         if (voices[i].stage && voices[i].gate && voices[i].note == note && voices[i].part == part)
             v = &voices[i];
-    for (i = j = 0; i < NVOICE; i++)
+    for (i = j = g = 0; i < NVOICE; i++) {
         j += voices[i].stage != 0;
+        g += voices[i].stage && voices[i].gate;
+    }
     for (i = 0; i < NVOICE && !v && j < vcap; i++)     /* (past the CPU guard's cap: one is taken over instead) */
         if (!voices[i].stage)
             v = &voices[i];
-    if (!v) {
+    if (!v && g < vcap) {                        /* (and with as many held as the cap, the oldest held one) */
         uint32_t best = 0xFFFFFFFFu;
         for (i = 0; i < NVOICE; i++)
-            if (!voices[i].gate && voices[i].stamp < best) {
+            if (voices[i].stage && !voices[i].gate && voices[i].stamp < best) {
                 best = voices[i].stamp;
                 v = &voices[i];
             }
@@ -228,7 +235,7 @@ static void voice_on_part(int note, int part, int seq, int lay, int vel)
     if (!v) {
         uint32_t best = 0xFFFFFFFFu;
         for (i = 0; i < NVOICE; i++)
-            if (voices[i].stamp < best) {
+            if (voices[i].stage && voices[i].stamp < best) {
                 best = voices[i].stamp;
                 v = &voices[i];
             }
@@ -1197,7 +1204,7 @@ static void panic(int from_midi)
     if (eng_midi_fn && !from_midi)               /* (all notes off, out too; not back to where a CC 123 came from:
                                                   * a computer that passes MIDI through would send it back, and
                                                   * the two would trade it for ever) */
-        eng_midi_fn(0xB0u, 123u, 0u);
+        eng_mout3(0xB0u, 123u, 0u);
     unlatch();
     loop_release();
     step_release();
@@ -2048,8 +2055,14 @@ static void lim_block(f32 *L, f32 *R)
     lim_g = g1;
 }
 
-static volatile uint32_t quiet_n;                /* blocks in a row the output has been silent */
-int eng_silent(void) { return !eng_voices() && quiet_n > (uint32_t)(SR * 0.5f) / CTRL; }
+/* Silence, for what stalls the sound (a flash erase, ~17 ms): no voice, and the output under hearing for half a
+ * second, or no voice for six (COZY's crackle never stops, and a long echo at the top of ECHO hangs on faintly:
+ * by then a stall in it is lost in it). */
+static volatile uint32_t quiet_n, novoice_n;     /* control blocks in a row: the output silent, no voice sounding */
+int eng_silent(void)
+{
+    return !eng_voices() && (quiet_n > (uint32_t)(SR * 0.5f) / CTRL || novoice_n > (uint32_t)(SR * 6.0f) / CTRL);
+}
 
 void eng_render(int32_t *lr, uint32_t n)
 {
@@ -2064,7 +2077,8 @@ void eng_render(int32_t *lr, uint32_t n)
             pos = 0;
             for (i = 0; i < CTRL; i++)
                 pk = maxf(pk, maxf(absf(L[i]), absf(R[i])));
-            quiet_n = pk < 3.0e-5f ? quiet_n + 1u : 0u;     /* (about -90 dB: an echo's tail has died away) */
+            quiet_n = pk < 1.5e-4f ? quiet_n + 1u : 0u;     /* (about -76 dB: an echo's tail is gone to the ear) */
+            novoice_n = eng_voices() ? 0u : novoice_n + 1u;
         }
         take = have < n ? have : n;
         for (i = 0; i < take; i++) {

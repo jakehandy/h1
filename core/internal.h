@@ -337,6 +337,7 @@ void eng_snapshot(Vis *vis);                     /* main loop: copy what the pic
 uint32_t eng_sounding_lo(void);                  /* notes sounding, as key bits for the LEDs */
 int eng_seq_leds(uint32_t *out, int page_open, int blink);   /* the pattern on the white keys; 0: not showing */
 uint32_t eng_voices(void);
+void eng_mout3(uint8_t status, uint8_t d1, uint8_t d2);   /* MIDI out, on MIDI's CHAN */
 int eng_silent(void);
 void eng_load(int pct);
 int eng_vcap(void);

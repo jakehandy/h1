@@ -882,7 +882,7 @@ static void set_knob(int i, int v)
     knob_touch[i] = 0.0f;
     mark_dirty();
     if (*k != was && eng_midi_fn)                /* out as CC 20-23, as they come in */
-        eng_midi_fn(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
+        eng_mout3(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
 }
 
 static APART void set_param(int i, int v)
@@ -897,6 +897,8 @@ static APART void set_param(int i, int v)
         set_seq_mode(v);
         return;
     }
+    if (page == PG_MIDI && i == OPT_CHAN)
+        eng_mout3(0xB0u, 123u, 0u);              /* (what was sent on the old channel is let go there) */
     *q = (uint8_t)v;
     if (page == PG_KEYS && i == 3 && v != 1)
         eng_post(EV_UNLATCH, 0);

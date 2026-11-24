@@ -100,6 +100,7 @@ typedef char v8_is_3160_bytes[H1_VERSION_8_SIZE == 3160u ? 1 : -1];
 typedef char v9_is_3344_bytes[sizeof(H1State) == 3344u ? 1 : -1];
 typedef char old_head_is_the_same[offsetof(H1Old, ip) == offsetof(H1State, ip) ? 1 : -1];
 typedef char the_slots_hold_the_instruments[NINST <= NSLOT && NSLOT * NALGO < 255 ? 1 : -1];
+typedef char meta_holds_the_layers[H1_META_N == 6 + 3 * NLAYER ? 1 : -1];
 typedef char v9_fits_a_store_object[sizeof(H1State) <= 3840u ? 1 : -1];
 static void bytes(void *to, const uint8_t *from, uint32_t n)
 {
@@ -286,6 +287,27 @@ const void *h1_loop(uint32_t *size)
     const void *p;
     loop_given_gen = eng_loop_gen();
     p = eng_loop_blob(&n);
+    if (size)
+        *size = n;
+    return p;
+}
+
+SMALL const void *h1_loop_export(uint32_t *size, uint8_t meta[H1_META_N])
+{
+    uint32_t n;
+    const void *p = eng_loop_blob(&n);
+    int i;
+    meta[0] = 1;
+    meta[1] = st.glo[0];
+    meta[2] = st.seq[2];
+    meta[3] = st.seq[1];
+    meta[4] = st.glo[1];
+    meta[5] = NINST;
+    for (i = 0; i < NLAYER; i++) {
+        meta[6 + i] = st.layer[i].part;
+        meta[22 + i] = st.layer[i].rsv[0];
+        meta[38 + i] = st.layer[i].rsv[1];
+    }
     if (size)
         *size = n;
     return p;
