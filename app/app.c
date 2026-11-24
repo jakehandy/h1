@@ -540,9 +540,9 @@ void app_panic(void) { h1_midi(0xB0, 123, 0); }
  * them (display off, sleep out, porch, gate, VCOM, power, gammas, then pixel format, scan, inversion and
  * display on), with its two extra settings: the second data line off (E7) and full brightness (51).
  *
- * The panel's clock: M-VAVE's firmware runs it at 12 MHz, fm1-base at 60 (about 44 measured), which the
- * older panels take. SETUP's SCREEN: AUTO is 12 MHz on the newer FM-1s (told apart by their flash, the
- * UC25HQ80, JEDEC B3 60 14) and 60 on the older; FAST is 60 on any; SAFE is 12 on any. */
+ * The panel's clock: M-VAVE's firmware runs it at 12 MHz, fm1-base at 60 (about 44 measured). SETUP's SCREEN:
+ * AUTO and FAST are 60, SAFE is 12 for a screen that shows noise. (0.3.1's AUTO was 12 on the FM-1s with the
+ * newer flash chip, the UC25HQ80: a busy picture then took three times as long to send, 0.3.2.) */
 #ifndef PLAT_HOST
 static const uint8_t SCR_SEQ[] = {         /* command, count, the bytes; command 0: wait that many ms */
     0x28, 0, 0x00, 100,                      /* DISPOFF */
@@ -566,13 +566,11 @@ static const uint8_t SCR_SEQ[] = {         /* command, count, the bytes; command
     0x13, 0,                                 /* NORON */
 };
 #define SCR_SLOW 4u                        /* 12 MHz, M-VAVE's own */
-static int scr_new;                        /* a newer FM-1 (its flash part) */
 static int scr_speed = -1;
 
 static void scr_setup(void)
 {
     uint32_t r, i;
-    scr_new = fl_jedec() == 0xB36014u;
     fm1_lcd_baud(SCR_SLOW);                /* (the setup itself always at the slow clock) */
     for (r = 0; r < sizeof SCR_SEQ; r += 2u + (SCR_SEQ[r] ? SCR_SEQ[r + 1u] : 0u)) {
         if (!SCR_SEQ[r]) {
@@ -590,7 +588,7 @@ static void scr_setup(void)
 
 static void scr_clock(void)                /* SETUP's SCREEN, whenever it changes */
 {
-    int s = h1_screen(), slow = s == 2 || (s == 0 && scr_new);
+    int s = h1_screen(), slow = s == 2;
     if (s == scr_speed)
         return;
     scr_speed = s;

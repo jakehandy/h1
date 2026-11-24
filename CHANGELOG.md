@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+Identity `FM-1_481000302`.
+
+**Screen**
+- The frame rate is back on FM-1s with the newer flash chip. 0.3.1 sent the picture to the screen at 12 MHz
+  on those units, against 60 on the others, and a busy picture took three times as long to send. SCREEN's
+  AUTO is now the fast clock on every unit. If a screen shows noise or wrong colours, set SCREEN to SAFE on
+  the SETUP page.
+
 ## 0.3.1
 
 Identity `FM-1_481000301`. Fixes from the GitHub issues and Discord since 0.3.0, the layer view, MIDI extras
@@ -10,7 +20,7 @@ setting starts off, so nothing changes until you turn it on.
 - FM-1s from the newer production run have a different screen, and h1 showed it in the wrong colours. h1 now
   sends the screen the same setup the stock firmware does, at start, and runs the newer screen at a slower,
   safe clock. Older units look as before. **SCREEN** on the SETUP page picks the clock: AUTO (the default,
-  by unit), FAST, or SAFE if a screen still shows noise.
+  by unit), FAST, or SAFE if a screen still shows noise. (0.3.2 makes AUTO the fast clock on every unit.)
 
 **Crackles and dropouts**
 - No more crackle at the start (#64), and no more dropouts with the key lights flickering (#58). Both came
