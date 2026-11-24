@@ -339,7 +339,7 @@ static uint32_t layview_leds(void)
     return m;
 }
 
-static void lv_toast(int k, const char *what)
+static APART void lv_toast(int k, const char *what)
 {
     toast("LAYER ", k + 1, 1, what, -1);
 }
@@ -357,7 +357,7 @@ static APART void lv_key_up(int k)
 }
 
 /* a button pressed while PLAY is held: REC on a layer key clears that layer */
-static int layview_button(int btn)
+static APART int layview_button(int btn)
 {
     if (!lv_play || btn != H1_BTN_REC || lv_key < 0)
         return 0;
@@ -373,7 +373,7 @@ static int layview_button(int btn)
 }
 
 /* a key while PLAY is held: 1 when the layer view took it */
-static int layview_key(int key, int down)
+static APART int layview_key(int key, int down)
 {
     int k;
     if (!lv_play)
@@ -395,7 +395,7 @@ static int layview_key(int key, int down)
     return 1;
 }
 
-static void layview_hold(void)
+static APART void layview_hold(void)
 {
     Layer *l;
     if (lv_key < 0 || lv_key_fired || now - lv_key_ms <= LV_SOLO_MS)
@@ -419,7 +419,7 @@ static void layview_hold(void)
     mark_dirty();
 }
 
-static void layview_volume(int d)
+static APART void layview_volume(int d)
 {
     Layer *l = &st.layer[lv_key];
     int v;
@@ -484,7 +484,7 @@ void h1_key(int key, int down)
     }
 }
 
-void h1_midi(uint8_t status, uint8_t d1, uint8_t d2)
+SMALL void h1_midi(uint8_t status, uint8_t d1, uint8_t d2)
 {
     uint8_t type = status & 0xF0u;
     if (opt[OPT_CHAN] && type >= 0x80u && type < 0xF0u && (status & 15u) != opt[OPT_CHAN] - 1u)

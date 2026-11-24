@@ -522,7 +522,7 @@ static APART void frog_run(const Vis *vis)
     }
 }
 
-static void koi_draw(const Vis *vis)
+static SMALL void koi_draw(const Vis *vis)
 {
     f32 dt = vis->dt, t = vis->t, mallet = vis->k[0], ripple = vis->k[1], linger = vis->k[2], sink = vis->k[3], mt = smooth01(vis->algo_t);
     f32 lev = sat(vis->level * 3.0f), life = 1.2f + 3.2f * linger, dim = 1.0f - 0.58f * sink, Rv;

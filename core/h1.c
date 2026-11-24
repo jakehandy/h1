@@ -44,7 +44,7 @@ static const uint8_t OPT_MAX[NOPT] = {16, 2, 1, 1, 1, 1, 2, 1};
 
 /* rsv[0]: the channel (0 all, 1..16), PEDAL << 5, WHEEL << 6, LEDS << 7. rsv[1]: BEND, ANIM << 2, EGGS << 3,
  * SCREEN << 4. */
-void opt_unpack(void)
+SMALL void opt_unpack(void)
 {
     int i;
     opt[OPT_CHAN] = st.rsv[0] & 31u;
@@ -61,7 +61,7 @@ void opt_unpack(void)
     opt_pack();
 }
 
-void opt_pack(void)
+SMALL void opt_pack(void)
 {
     st.rsv[0] = (uint8_t)(opt[OPT_CHAN] | opt[OPT_PEDAL] << 5 | opt[OPT_WHEEL] << 6 | opt[OPT_LEDS] << 7);
     st.rsv[1] = (uint8_t)(opt[OPT_BEND] | opt[OPT_ANIM] << 2 | opt[OPT_EGGS] << 3 | opt[OPT_SCREEN] << 4);
