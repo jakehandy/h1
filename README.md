@@ -145,19 +145,27 @@ device with two parts.
 app or the system's sound settings, and record. It carries the whole mix at the MASTER volume, the
 same as the speaker. Nothing plays back through it: the FM-1 isn't a sound card for the computer.
 
-**MIDI in,** over USB or the TRS jack, on any channel:
+**MIDI in,** over USB or the TRS jack, on any channel (or the one CHAN on the MIDI page picks):
 
 - Notes play the instrument in hand at their velocity, about 20 dB from the softest to the hardest,
   and darker the softer they are. The FM-1's own keys play at full.
 - CC 20 to 23 turn the four knobs. CC 123 stops every note.
+- Off until you turn them on, on the MIDI page: pitch bend (BEND, 2 or 12 semitones), the mod wheel
+  (WHEEL, deeper live modulation) and a sustain pedal (PEDAL, CC 64).
 - The loop and the step sequencer record the velocity and play it back.
 
-**MIDI out,** over USB only, on channel 1:
+**MIDI out,** over USB only, on channel 1 (or CHAN's):
 
 - The notes of the keys, the arpeggiator and the sequencer, so a DAW can record what you play as
   MIDI, or h1 can play another synth.
 - CC 20 to 23 as the four knobs turn.
 - A note that came in over MIDI isn't sent back out, so a DAW that echoes its input doesn't loop.
+
+**The loop as a MIDI file.** Send h1 the SysEx message `F0 7D 68 31 4C F7` over USB-MIDI and it sends
+the loop back as SysEx (the screen says `SENDING LOOP`, then `LOOP SENT`). Save what comes back to a
+`.syx` file and run `python3 tools/h1_loop_mid.py loop.syx loop.mid`: one track a layer, at the loop's
+tempo and meter. If the loop changes while it goes out, the screen says `LOOP CHANGED` and nothing is
+kept; ask again.
 
 **A USB keyboard, with no computer.** Hold **OCT −** and **OCT +** together for a second and the USB
 port turns host: plug in a USB-MIDI keyboard or controller and play h1 from it. The screen shows its
@@ -173,16 +181,17 @@ to a DAW. Hold both again to go back. It's never kept, so the FM-1 always starts
 | ALGORITHM | One of the instrument's eight algorithms. Each keeps its own four knob settings |
 | KNOB 1–4 | Home screen: the instrument's four live modulations. Settings page: its four columns |
 | SELECT | Home screen: tempo. Settings page: next page. Writing steps: moves the cursor |
-| FX SEL ENV LFO GLO ARP SEQ | Open that settings page. Press it again, or HOME, to go back |
+| FX SEL ENV LFO GLO ARP SEQ | Open that settings page. Press it again, or HOME, to go back. SELECT goes on past SEQ to the MIDI and SETUP pages |
 | REC / PLAY | Loop: REC arms a take, again closes it, again overdubs. PLAY stops and starts it, and the loop is kept through a power-off. Step: REC turns step-write on and off, PLAY runs the pattern |
-| EDIT | Pins the knob strip on the home screen. Writing steps: leaves a rest |
+| EDIT | Pins the knob strip on the home screen. On a settings page: back home with the strip up. Writing steps: leaves a rest |
 | OCT − / + | Octave, two each way. Press both for the middle octave |
 | MASTER | Volume of everything. A ring in the middle of the screen shows it while it turns, marked GLOBAL |
 | hold EDIT, turn MASTER or SELECT | Volume of the instrument in hand. The same ring, marked INSTRUMENT. MASTER sets it to where the knob stands, SELECT moves it a step a click. Holding EDIT alone shows where it stands |
 | hold SEQ | Swap LOOP and STEP |
 | hold GLO | Metronome: CLICK REC, CLICK ON, CLICK OFF |
 | SEQ + REC | LAYERS on and off (on by default): with it on, each take keeps its own instrument, algorithm and settings |
-| hold REC | Clear the loop or the pattern. With LAYERS on: clear what was recorded on the instrument in hand, and keep holding to three seconds to clear everything |
+| hold REC | Clear the loop or the pattern. With LAYERS on: clear what was recorded on the instrument in hand. Keep holding to three seconds and the screen asks `TAP REC: CLEAR ALL`: tap REC within three seconds to clear everything, or any other button to keep it |
+| hold PLAY | With LAYERS on: the layer view. The white keys are the layers: tap one to mute it, hold one to solo it, hold one and turn SELECT for its volume, hold one and press REC to clear it. A quick tap of PLAY still stops and starts |
 | hold HOME | Silence everything |
 | hold OCT − and OCT + | USB host for a keyboard, or back to the computer (a tap of both is the middle octave) |
 | hold SAVE | Reset the algorithm in hand: its four knobs go back to how they came (everything else saves by itself) |
@@ -197,7 +206,7 @@ with EDIT held it is no longer where the volume of everything was left, so that 
 until you turn MASTER, without EDIT, back through it. Until then the ring shows the volume that is
 held, and a small dot outside the ring shows where the knob is.
 
-While the sequencer runs, the sixteen white keys light as the pattern, left to right: lit where
+On the SEQ page or while writing steps (or always, with LEDS on the SETUP page set to SEQ), the sixteen white keys light as the pattern, left to right: lit where
 there are notes, with the playing step flipped. Up to sixteen steps each key is a step, up to
 thirty-two each key is two. A step holds up to eight notes.
 

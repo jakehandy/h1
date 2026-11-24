@@ -51,7 +51,7 @@ static void haunt_render(Voice *v, const Blk *b, f32 *out, int n)
     Svf fw, f2;
     int algo = H.algo, i;
     f32 dt = (f32)n * b->isr, pitch = v->pitch + b->bend, f, d0, d1, d2, d3, amp, shadow = H.dread * H.dread * 0.55f;
-    f32 wind = H.fog * H.fog * 5.0f, wf, wq = 9.0f, sub = H.depth * 0.8f, lpk, swell, vib = 0.0f, bell = 0.0f, tone = 1.0f, up = 0.0f, det;
+    f32 bl2, bl5, wind = H.fog * H.fog * 5.0f, wf, wq = 9.0f, sub = H.depth * 0.8f, lpk, swell, vib = 0.0f, bell = 0.0f, tone = 1.0f, up = 0.0f, det;
     f32 p0 = v->ph[0], p1 = v->ph[1], p2 = v->ph[2], p3 = v->ph[3], lp = v->s[6], fbk = v->s[12], dc = v->s[7];
 
     /* every voice wanders by itself, and shivers by itself */
@@ -90,6 +90,10 @@ static void haunt_render(Voice *v, const Blk *b, f32 *out, int n)
     svf_set(&fw, minf(wf, 9000.0f), wq, b->isr);
     lpk = onepole_k(1.0f / (H1_TAU * (7000.0f * exp2fx(-H.depth * 3.8f))), b->sr);
 
+    /* BELLS' partials at 2.76 and 5.4 times the note fade out on the way to half the rate: past it they
+     * came back down as other notes (the higher bells rang out of tune) */
+    bl2 = 1.1f * sat((0.45f - d0 * 2.76f) * 20.0f);
+    bl5 = 0.5f * sat((0.45f - d0 * 5.4f) * 20.0f);
     if (algo == 5) {                             /* BELLS: it tolls again, when it likes */
         v->s[9] -= dt;
         if (v->s[9] <= 0.0f && v->gate) {
@@ -100,7 +104,7 @@ static void haunt_render(Voice *v, const Blk *b, f32 *out, int n)
         v->s[8] *= 1.0f - onepole_k(1.3f, b->sr / (f32)n);
     }
     if (algo == 4) {                             /* CHOIR: two formants, sliding between OO and AH */
-        f32 m = 0.5f + 0.5f * tsin(v->ph[4] * 0.7f + v->r1);
+        f32 m = 0.5f + 0.5f * tsin(v->ph[4] + v->r1);   /* (a whole turn a swell: 0.7 of one jumped back at its end) */
         svf_set(&fw, lerpf(320.0f, 720.0f, m), 9.0f, b->isr);
         svf_set(&f2, lerpf(820.0f, 1150.0f, m), 10.0f, b->isr);
     } else
@@ -114,7 +118,7 @@ static void haunt_render(Voice *v, const Blk *b, f32 *out, int n)
         case 5:                                  /* (s[10], s[11]: two more of the bell's partials) */
             v->s[10] += d0 * 5.4f; if (v->s[10] >= 1.0f) v->s[10] -= (f32)(int)v->s[10];
             v->s[11] += d0 * 1.19f; if (v->s[11] >= 1.0f) v->s[11] -= 1.0f;
-            x = tsin(p0) + 0.8f * tsin(p1) + bell * (1.1f * tsin(p2) + 0.5f * tsin(v->s[10]) + 0.7f * tsin(v->s[11]));
+            x = tsin(p0) + 0.8f * tsin(p1) + bell * (bl2 * tsin(p2) + bl5 * tsin(v->s[10]) + 0.7f * tsin(v->s[11]));
             break;
         case 6: x = 1.4f * tsin(p0 + 0.2f * swell * tsin(p1 * 2.0f)) + 0.8f * tsin(p1); break;
         }
@@ -360,7 +364,7 @@ static APART void eyes_run(const Vis *vis)
             tri_t += vis->dt;
         else
             tri_t = 0.0f, eyes_done = 0;
-        if (tri_t > 1.0f && !eyes_done && eyes <= 0.0f) {
+        if (tri_t > 1.0f && !eyes_done && eyes <= 0.0f && EGGS_ON) {
             eyes_done = 1;
             eyes = 1.0f;
             eng_cue(CUE_HAUNT);

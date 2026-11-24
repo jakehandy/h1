@@ -267,7 +267,7 @@ static APART void one_up(const Vis *vis)
             run_n = vis->hand_pitch > run_p && run_t < 0.5f ? run_n + 1 : 1;
         run_p = vis->hand_pitch;
         run_t = 0.0f;
-        if (run_n == 8) {
+        if (run_n == 8 && EGGS_ON) {
             run_n = -1;
             up_t = 1.0f;
             hopv = -620.0f;
@@ -290,7 +290,7 @@ static APART void one_up(const Vis *vis)
     }
 }
 
-static void pip_draw(const Vis *vis)
+static SMALL void pip_draw(const Vis *vis)
 {
     uint8_t ma[12][12], mb[12][12];
     f32 dt = vis->dt, cs = 14.0f, sx, sy, x0, y0, lvl = 0.0f, zap = (vis->k[2] - 0.5f) * 2.0f, wob = vis->k[1];

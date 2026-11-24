@@ -71,7 +71,7 @@ typedef struct IRun {
 #define LINGER 400                               /* 0.3 s */
 static IRun ir[NINST];
 /* a closed layer's numbers: its own LFO, envelope and knobs, as they were left (lay_set) */
-typedef struct LRun { Blk b; Mod m; Lfo lf; uint32_t at; } LRun;
+typedef struct LRun { Blk b; Mod m; Lfo lf; uint32_t at; f32 g; } LRun;
 static LRun lrun[NLAYER];
 static uint32_t blkno = 16;
 static Lfo lfo_live;                             /* the LFO of the instrument in hand: one clock across instruments */
@@ -109,14 +109,19 @@ void eng_post_note(int on, int note, int vel, int from_midi)
          ((uint32_t)iclamp(vel, 1, 127) << 16) | (from_midi ? 1u << 23 : 0u));
 }
 
-/* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on channel 1. Not what came
- * in over MIDI (a computer that sends a note in would hear it echoed back). -------------------------- */
+/* ---- MIDI out: what is played on the keys, the arpeggiator and the sequencer, on channel 1 (or MIDI's
+ * CHAN). Not what came in over MIDI (a computer that sends a note in would hear it echoed back). ------ */
 void (*eng_midi_fn)(uint8_t status, uint8_t d1, uint8_t d2);
-static void mout(int on, int note, int vel)
+void eng_mout3(uint8_t status, uint8_t d1, uint8_t d2)
 {
     void (*fn)(uint8_t, uint8_t, uint8_t) = eng_midi_fn;
-    if (fn && note >= 0 && note < 128)
-        fn(on ? 0x90u : 0x80u, (uint8_t)note, (uint8_t)(on ? iclamp(vel, 1, 127) : 0));
+    if (fn)
+        fn((uint8_t)(status | (opt[OPT_CHAN] ? (opt[OPT_CHAN] - 1u) & 15u : 0u)), d1, d2);
+}
+static void mout(int on, int note, int vel)
+{
+    if (note >= 0 && note < 128)
+        eng_mout3(on ? 0x90u : 0x80u, (uint8_t)note, (uint8_t)(on ? iclamp(vel, 1, 127) : 0));
 }
 
 void dsp_init(void)
@@ -177,24 +182,52 @@ static void vel_set(Voice *v, int vel)
 
 /* A note starts, on a part: an instrument and one of its algorithms. A voice that last sounded another
  * instrument is emptied first: what an instrument keeps in a voice means nothing to the next. */
+static const Blk *part_set(int part);
+static const Blk *lay_set(int part, int lay);
+/* The CPU guard: the port says how much of each block's time the sound took (h1_load). Kept over ~88 % for
+ * a moment, fewer voices may sound at once (a new note takes over the oldest, and what is letting go dies
+ * away quicker); back under 60 %, they come back one at a time. Four instruments layered on a loop could
+ * take more than the block and crackle (#66). Without a port that tells it, it never steps in. */
+volatile f32 eng_bend, eng_wheel;
+static volatile int vcap = NVOICE;
+static int fast_rel;
+static f32 load_s;
+static uint32_t load_t;
+void eng_load(int pct)
+{
+    load_s += ((f32)iclamp(pct, 0, 400) - load_s) * 0.05f;
+    if (++load_t < 48u)
+        return;
+    load_t = 0;
+    if (load_s > 88.0f && vcap > 3)
+        vcap--;
+    else if (load_s < 60.0f && vcap < NVOICE)
+        vcap++;
+}
+int eng_vcap(void) { return vcap; }
+static int voice_key(const Voice *v);
 static void voice_on_part(int note, int part, int seq, int lay, int vel)
 {
     Voice *v = 0;
     const Blk *b;
     f32 was;
-    int i, j, inst = PART_INST(part);
+    int i, j, g, inst = PART_INST(part);
     if (note < 0 || note > 127)
         return;
     for (i = 0; i < NVOICE && !v; i++)
         if (voices[i].stage && voices[i].gate && voices[i].note == note && voices[i].part == part)
             v = &voices[i];
-    for (i = 0; i < NVOICE && !v; i++)
+    for (i = j = g = 0; i < NVOICE; i++) {
+        j += voices[i].stage != 0;
+        g += voices[i].stage && voices[i].gate;
+    }
+    for (i = 0; i < NVOICE && !v && j < vcap; i++)     /* (past the CPU guard's cap: one is taken over instead) */
         if (!voices[i].stage)
             v = &voices[i];
-    if (!v) {
+    if (!v && g < vcap) {                        /* (and with as many held as the cap, the oldest held one) */
         uint32_t best = 0xFFFFFFFFu;
         for (i = 0; i < NVOICE; i++)
-            if (!voices[i].gate && voices[i].stamp < best) {
+            if (voices[i].stage && !voices[i].gate && voices[i].stamp < best) {
                 best = voices[i].stamp;
                 v = &voices[i];
             }
@@ -202,7 +235,7 @@ static void voice_on_part(int note, int part, int seq, int lay, int vel)
     if (!v) {
         uint32_t best = 0xFFFFFFFFu;
         for (i = 0; i < NVOICE; i++)
-            if (voices[i].stamp < best) {
+            if (voices[i].stage && voices[i].stamp < best) {
                 best = voices[i].stamp;
                 v = &voices[i];
             }
@@ -242,7 +275,9 @@ static void voice_on_part(int note, int part, int seq, int lay, int vel)
     v->pan = clampf(((f32)note - 64.0f) * (1.0f / 40.0f), -0.45f, 0.45f);
     v->r1 = rng_f(&eng_rng);
     v->r2 = rng_f(&eng_rng);
-    b = part_set(part);
+    /* (a closed layer's note starts on the layer's own settings, as it then sounds: an instrument that reads
+     * its knobs at the note, as TILT's BOUNCE does, would take the hand's otherwise, #52) */
+    b = voice_key(v) >> 8 ? lay_set(part, lay) : part_set(part);
     insts[inst]->note(v, b);
     v->serial++;
     if (inst == cur_i) {
@@ -290,6 +325,7 @@ static void voices_release_all(void)
 
 /* ---- arpeggiator ---------------------------------------------------------------------- */
 static uint8_t held[16], held_vel[16];
+static uint32_t direct[4];        /* notes sounding from a key without the ARP (route) */
 static int nheld;
 static int arp_i, arp_stepn;
 static f32 arp_acc = 1e9f, arp_off;
@@ -370,6 +406,7 @@ static void arp_fire(const InstParams *ip, f32 len)
     arp_off = gate >= 0.995f ? 1e9f : len * maxf(0.06f, gate);
 }
 
+static void unlatch(void);
 static void arp_tick(const InstParams *ip, f32 dticks)
 {
     f32 step, sw, len;
@@ -378,6 +415,8 @@ static void arp_tick(const InstParams *ip, f32 dticks)
             arp_release();
             arp_was = 0;
             nheld = 0;
+            if (st.keys[3] == 2)
+                unlatch();                       /* (HOLD ARP: what it held goes with the ARP) */
         }
         return;
     }
@@ -412,11 +451,22 @@ static void arp_tick(const InstParams *ip, f32 dticks)
 static void route(int note, int on, int vel, int from_midi)
 {
     int i;
-    if (st.ip[cur_i].arp[0] == 0) {
-        if (on) voice_on(note, vel);
-        else voice_off(note);
+    uint32_t bit = 1u << (note & 31);
+    /* A note started straight (ARP off) is ended straight, whatever ARP has become since: the ARP turned on
+     * while the key was down took its release into the held list, and the voice rang on (#56). */
+    if (!on && ((direct[note >> 5 & 3] & bit) || st.ip[cur_i].arp[0] == 0)) {
+        direct[note >> 5 & 3] &= ~bit;
+        voice_off(note);
         if (!from_midi)
-            mout(on, note, vel);
+            mout(0, note, 0);
+        if (st.ip[cur_i].arp[0] == 0)
+            return;
+    }
+    if (st.ip[cur_i].arp[0] == 0) {
+        voice_on(note, vel);
+        direct[note >> 5 & 3] |= bit;
+        if (!from_midi)
+            mout(1, note, vel);
         return;
     }
     if (on) {
@@ -581,6 +631,7 @@ static int layer_take(void)
     }
     st.layer[i].part = (uint8_t)part;
     st.layer[i].open = 1;
+    st.layer[i].rsv[0] = st.layer[i].rsv[1] = 0; /* (a new layer: at full, heard) */
     layer_snap(&st.layer[i]);
     return i + 1;
 }
@@ -589,6 +640,28 @@ static int layer_take(void)
 static int layer_of(int lay, int part)
 {
     return lay >= 1 && lay <= NLAYER && st.layer[lay - 1].part == part ? lay : 0;
+}
+
+/* The layer view (0.3.1): a layer muted, or another soloed, plays nothing (its notes are skipped, as a
+ * muted track's are); its volume is a gain on its voices in the mix. Only with LAYERS on: off, every
+ * note follows the hand, layers or not. */
+static uint32_t lay_hushed;                      /* bit l - 1: layer l is not heard, as of this block */
+static void lay_hush_set(void)
+{
+    uint32_t solo = 0, mute = 0;
+    int i;
+    for (i = 0; i < NLAYER; i++)
+        if (st.layer[i].part) {
+            if (st.layer[i].rsv[1] & LAY_SOLO) solo |= 1u << i;
+            if (st.layer[i].rsv[1] & LAY_MUTE) mute |= 1u << i;
+        }
+    lay_hushed = layers() ? (solo ? ~solo : mute) : 0u;
+}
+static int lay_hush(int lay) { return lay >= 1 && lay <= NLAYER && (lay_hushed >> (lay - 1) & 1u); }
+static f32 lay_gain(int lay)
+{
+    f32 c = (f32)(100 - iclamp(st.layer[(lay - 1) & (NLAYER - 1)].rsv[0], 0, 100)) * 0.01f;
+    return c * c;
 }
 static volatile int loop_state = LOOP_EMPTY;
 static volatile f32 loop_pos, loop_len = 768.0f;
@@ -720,6 +793,8 @@ static void loop_play_range(f32 a, f32 b)
             if (layers()) {                      /* each note on the part it was played on, past the arpeggiator */
                 int part = lev[i].part ? lev[i].part : live_part(), lay = layer_of(lev[i].lay, part);
                 if (lev[i].on & 1) {
+                    if (lay_hush(lay))
+                        continue;
                     voice_on_part(n, part, 1, lay, vel);
                     mout(1, n, vel);
                 } else {
@@ -866,6 +941,8 @@ static void step_fire(int i, f32 len)
             if (layers()) {
                 part = part_ok(st.step_part[i][j]) ? st.step_part[i][j] : live_part();
                 lay = layer_of(st.step_lay[i][j], part);
+                if (lay_hush(lay))
+                    continue;
                 voice_on_part(n, part, 1, lay, vel);
                 mout(1, n, vel);
             } else
@@ -1072,9 +1149,38 @@ static void unlatch(void)
     latched_midi[0] = latched_midi[1] = latched_midi[2] = latched_midi[3] = 0;
 }
 
+/* MIDI's sustain pedal (MIDI page, PEDAL): while it is down a key let go of goes on sounding, as if it
+ * were still held; the pedal up lets them all go. (Before HOLD and the sequencer: a take records what
+ * was heard.) */
+static uint32_t sus_keep[4];
+static int sus_on;
+static void live_note(int note, int on, int vel, int from_midi);
+static void sustain(int down)
+{
+    int n;
+    sus_on = down;
+    if (down)
+        return;
+    for (n = 0; n < 128; n++)
+        if (sus_keep[n >> 5] & (1u << (n & 31))) {
+            sus_keep[n >> 5] &= ~(1u << (n & 31));
+            live_note(n, 0, 0, 0);
+        }
+}
+
+/* KEYS HOLD: OFF, ON (what is played stays until the next), ARP (the same, only while the ARP runs) */
+static int hold_on(void) { return st.keys[3] == 1 || (st.keys[3] == 2 && st.ip[cur_i].arp[0]); }
+
 static void live_note(int note, int on, int vel, int from_midi)
 {
-    if (!st.keys[3]) {
+    uint32_t bit = 1u << (note & 31);
+    if (on)
+        sus_keep[note >> 5 & 3] &= ~bit;
+    else if (sus_on) {
+        sus_keep[note >> 5 & 3] |= bit;
+        return;
+    }
+    if (!hold_on()) {
         eff_note(note, on, vel, from_midi);
         return;
     }
@@ -1098,12 +1204,15 @@ static void panic(int from_midi)
     if (eng_midi_fn && !from_midi)               /* (all notes off, out too; not back to where a CC 123 came from:
                                                   * a computer that passes MIDI through would send it back, and
                                                   * the two would trade it for ever) */
-        eng_midi_fn(0xB0u, 123u, 0u);
+        eng_mout3(0xB0u, 123u, 0u);
     unlatch();
     loop_release();
     step_release();
     step_gesture = 0;
     nheld = 0;
+    direct[0] = direct[1] = direct[2] = direct[3] = 0;
+    sus_keep[0] = sus_keep[1] = sus_keep[2] = sus_keep[3] = 0;
+    sus_on = 0;
     arp_release();
     phys_down = 0;
     for (i = 0; i < NVOICE; i++)
@@ -1111,6 +1220,42 @@ static void panic(int from_midi)
             voices[i].gate = 0;
             voices[i].stage = 4;
         }
+}
+
+/* one layer: its notes, in the loop and in the steps, and the layer itself (the layer view: a key and REC) */
+static APART void clear_layer(int lay)
+{
+    int i, j, k;
+    if (lay < 1 || lay > NLAYER)
+        return;
+    seq_release_all();
+    for (i = k = 0; i < nlev; i++)
+        if (lev[i].lay != lay)
+            lev[k++] = lev[i];
+    nlev = k;
+    for (i = 0; i < NSTEP; i++) {
+        for (j = k = 0; j < NSNOTE; j++)
+            if (st.steps[i][j] && st.step_lay[i][j] != lay) {
+                st.steps[i][k] = st.steps[i][j];
+                st.step_part[i][k] = st.step_part[i][j];
+                st.step_vel[i][k] = st.step_vel[i][j];
+                st.step_lay[i][k] = st.step_lay[i][j];
+                k++;
+            }
+        for (; k < NSNOTE; k++)
+            st.steps[i][k] = st.step_part[i][k] = st.step_vel[i][k] = st.step_lay[i][k] = 0;
+    }
+    {
+        uint8_t *p = (uint8_t *)&st.layer[lay - 1];
+        for (i = 0; i < (int)sizeof(Layer); i++)
+            p[i] = 0;
+    }
+    rec_forget();
+    loop_gen++;
+    if (!nlev && (loop_state == LOOP_IDLE || loop_state == LOOP_PLAY)) {
+        loop_pos = 0.0f;
+        loop_state = LOOP_EMPTY;
+    }
 }
 
 static void handle(uint32_t e)
@@ -1121,6 +1266,8 @@ static void handle(uint32_t e)
     case EV_NOTE_OFF: live_note(a & 127, 0, 0, midi); break;
     case EV_PANIC: panic(a & 1); cue_p = 0; break;
     case EV_CUE: cue_start(a); break;
+    case EV_SUSTAIN: sustain(a & 1); break;
+    case EV_CLEAR_LAY: clear_layer(a); break;
     case EV_UNLATCH: unlatch(); phys_down = 0; break;
     case EV_INST:
         if (a < NINST && a != cur_i) {
@@ -1371,6 +1518,8 @@ static void mod_run(Mod *m, const uint8_t *lfo_p, const uint8_t *env_p, Lfo *lf,
     default: lfo = tsin(lf->ph); break;
     }
     depth = (f32)lfo_p[2] * 0.01f;
+    if (live)                                    /* MIDI's mod wheel: more of the LFO (on PITCH, a vibrato) */
+        depth = minf(1.0f, depth + eng_wheel * 0.35f);
     target = lfo_p[3];
     if (live)
         lfo_out = lfo * depth;
@@ -1379,7 +1528,7 @@ static void mod_run(Mod *m, const uint8_t *lfo_p, const uint8_t *env_p, Lfo *lf,
     m->kmod_k = -1;
     m->kmod = 0.0f;
     m->lfo = lfo;
-    m->bend = ((f32)st.glo[2] - 50.0f) * 0.01f;
+    m->bend = ((f32)st.glo[2] - 50.0f) * 0.01f + (live ? eng_bend : 0.0f);
     if (target == 0)
         m->bend += lfo * depth * depth * 12.0f;
     else if (target <= 4) {
@@ -1456,6 +1605,7 @@ static const Blk *lay_set(int part, int lay)
     if (l->at != blkno) {
         if (l->at != blkno - 1u) {               /* (it was silent: its LFO starts where the instrument's stands) */
             l->lf = i == cur_i ? lfo_live : r->lf;
+            l->g = lay_gain(lay);
         }
         l->at = blkno;
         mod_run(&l->m, ly->lfo, ly->env, &l->lf, &lfo_rng, 0);
@@ -1516,7 +1666,7 @@ static void voice_block(int i)
         v->env += (vj.sus - v->env) * vj.kd;
         break;
     default:
-        v->env -= v->env * vj.kr + 0.00002f;
+        v->env -= v->env * (fast_rel ? maxf(vj.kr, 0.3f) : vj.kr) + 0.00002f;
         if (v->env <= 0.0003f)
             v->env = 0.0f;
         break;
@@ -1602,6 +1752,20 @@ static void block(f32 *L, f32 *R)
     }
 
     kg = st.keys[2] ? onepole_k(0.004f * exp2fx((f32)st.keys[2] * 0.08f), SR / (f32)CTRL) : 1.0f;
+    lay_hush_set();
+    if (lay_hushed)                              /* a layer just muted: what it was sounding lets go */
+        for (i = 0; i < NVOICE; i++)
+            if (voices[i].stage && voices[i].gate && voices[i].seq && lay_hush(voices[i].lay)) {
+                voices[i].gate = 0;
+                voices[i].stage = 4;
+                mout(0, voices[i].note, 0);
+            }
+    fast_rel = 0;
+    if (vcap < NVOICE) {                         /* the CPU guard is in: what is letting go goes in a few ms */
+        for (i = n = 0; i < NVOICE; i++)
+            n += voices[i].stage != 0;
+        fast_rel = n > vcap;
+    }
 
     for (n = 0; n < CTRL; n++)
         L[n] = R[n] = 0.0f;
@@ -1653,7 +1817,16 @@ static void block(f32 *L, f32 *R)
             uint32_t mine = 0, other = 0;
             int nv = 0, gl_lay = parts[p] >> 8;
             const Mod *m = gl_lay ? &lrun[(gl_lay - 1) & (NLAYER - 1)].m : &r->m;
+            f32 lg = 1.0f;
             b = gl_lay ? lay_set(parts[p] & 255, gl_lay) : part_set(parts[p]);
+            if (gl_lay) {                        /* the layer's own volume, eased (~5 ms) */
+                LRun *lr = &lrun[(gl_lay - 1) & (NLAYER - 1)];
+                f32 t = lay_gain(gl_lay);
+                lr->g += (t - lr->g) * 0.15f;
+                if (absf(t - lr->g) < 0.0005f)
+                    lr->g = t;
+                lg = lr->g;
+            }
             kr = pending_i >= 0 ? 0.3f : m->kr;
             for (i = 0; i < NVOICE; i++)         /* every other voice of the part to the second core, if there is one */
                 if (voices[i].stage && voice_key(&voices[i]) == parts[p]) {
@@ -1686,7 +1859,7 @@ static void block(f32 *L, f32 *R)
                     continue;
                 e0 = v->env_prev;
                 e1 = v->env;
-                g = def->gain * m->vol * algo_gain[inst][PART_ALGO(parts[p])] * v->vamp;
+                g = def->gain * m->vol * algo_gain[inst][PART_ALGO(parts[p])] * v->vamp * lg;
                 pan = clampf(v->pan + m->panmod, -1.0f, 1.0f);
                 pl = 1.0f - maxf(0.0f, pan) * 0.8f;
                 pr = 1.0f + minf(0.0f, pan) * 0.8f;
@@ -1882,6 +2055,15 @@ static void lim_block(f32 *L, f32 *R)
     lim_g = g1;
 }
 
+/* Silence, for what stalls the sound (a flash erase, ~17 ms): no voice, and the output under hearing for half a
+ * second, or no voice for six (COZY's crackle never stops, and a long echo at the top of ECHO hangs on faintly:
+ * by then a stall in it is lost in it). */
+static volatile uint32_t quiet_n, novoice_n;     /* control blocks in a row: the output silent, no voice sounding */
+int eng_silent(void)
+{
+    return !eng_voices() && (quiet_n > (uint32_t)(SR * 0.5f) / CTRL || novoice_n > (uint32_t)(SR * 6.0f) / CTRL);
+}
+
 void eng_render(int32_t *lr, uint32_t n)
 {
     static f32 L[CTRL], R[CTRL];
@@ -1889,9 +2071,14 @@ void eng_render(int32_t *lr, uint32_t n)
     while (n) {
         uint32_t take, i;
         if (!have) {
+            f32 pk = 0.0f;
             lim_block(L, R);
             have = CTRL;
             pos = 0;
+            for (i = 0; i < CTRL; i++)
+                pk = maxf(pk, maxf(absf(L[i]), absf(R[i])));
+            quiet_n = pk < 1.5e-4f ? quiet_n + 1u : 0u;     /* (about -76 dB: an echo's tail is gone to the ear) */
+            novoice_n = eng_voices() ? 0u : novoice_n + 1u;
         }
         take = have < n ? have : n;
         for (i = 0; i < take; i++) {

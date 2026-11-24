@@ -103,8 +103,12 @@ typedef struct Layer {
     uint8_t knob[4];
     uint8_t env[4];
     uint8_t lfo[4];
-    uint8_t rsv[2];
+    uint8_t rsv[2];              /* [0] how far it is turned down, 0..100 (0: full); [1] LAY_MUTE, LAY_SOLO (0.3.1) */
 } Layer;
+/* An FM index by the note's velocity: the full index at 127 (every key of the panel), 0.3 of it at the softest */
+#define VEL_FM(v) (0.3f + 0.7f * (f32)(v)->vel * (1.0f / 127.0f))
+#define LAY_MUTE 1u
+#define LAY_SOLO 2u
 
 typedef struct H1Old {           /* what versions 4 to 8 saved: only its offsets are used, nothing is read through it */
     uint32_t magic;
@@ -236,7 +240,16 @@ extern const InstDef *const insts[NINST];
 static inline int part_ok(uint32_t p) { return PART_SOME(p) && PART_ALGO(p) < NALGOS(PART_INST(p)); }
 
 /* ---- settings pages ------------------------------------------------------------------- */
-enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, NPAGE };
+enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, PG_MIDI, PG_SETUP, NPAGE };
+#define PG_BUTTONS PG_MIDI       /* the pages from here on have no button: SELECT goes on to them from SEQ */
+
+/* The MIDI and SETUP pages' settings (0.3.1): each 0 as it was before them. Saved packed in H1State.rsv, so
+ * the state stays version 9 and a 0.3.0 reads it (and leaves them off). */
+enum { OPT_CHAN, OPT_BEND, OPT_WHEEL, OPT_PEDAL, OPT_ANIM, OPT_EGGS, OPT_SCREEN, OPT_LEDS, NOPT };
+extern uint8_t opt[NOPT];
+void opt_unpack(void);
+void opt_pack(void);
+#define EGGS_ON (!opt[OPT_EGGS])
 enum { PK_PCT, PK_ENUM, PK_INT };
 
 typedef struct ParamDef {
@@ -263,7 +276,9 @@ enum { EV_NOTE_ON = 1, EV_NOTE_OFF, EV_PANIC, EV_INST, EV_UNLATCH, EV_REC, EV_PL
        EV_STEP_MOVE,             /* the step cursor: a = detents + 128 */
        EV_STEP_REST,             /* empty the step under the cursor and move on */
        EV_SEQ_MODE,              /* loop <-> step: stop whichever was running */
-       EV_CUE };                 /* a: one of the cues below */
+       EV_CUE,                   /* a: one of the cues below */
+       EV_SUSTAIN,               /* MIDI's sustain pedal: a = 1 down, 0 up */
+       EV_CLEAR_LAY };           /* a = 1..NLAYER: what that layer holds, and the layer */
 enum { LOOP_EMPTY, LOOP_IDLE, LOOP_ARMED, LOOP_REC, LOOP_PLAY, LOOP_DUB };
 enum { SEQ_LOOP, SEQ_STEP };
 enum { CLICK_REC, CLICK_ON, CLICK_OFF };       /* the metronome: while recording, always, never */
@@ -322,6 +337,11 @@ void eng_snapshot(Vis *vis);                     /* main loop: copy what the pic
 uint32_t eng_sounding_lo(void);                  /* notes sounding, as key bits for the LEDs */
 int eng_seq_leds(uint32_t *out, int page_open, int blink);   /* the pattern on the white keys; 0: not showing */
 uint32_t eng_voices(void);
+void eng_mout3(uint8_t status, uint8_t d1, uint8_t d2);   /* MIDI out, on MIDI's CHAN */
+int eng_silent(void);
+void eng_load(int pct);
+int eng_vcap(void);
+extern volatile f32 eng_bend, eng_wheel;         /* MIDI in: the pitch bend in semitones, the mod wheel 0..1 */
 void eng_two_cores(int (*run)(void (*fn)(uint32_t), uint32_t arg), int (*wait)(void));
 int eng_seq_has(int inst);                       /* main loop: something recorded was played on this instrument */
 extern Voice voices[NVOICE];

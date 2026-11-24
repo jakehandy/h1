@@ -79,7 +79,9 @@ static void knot_render(Voice *v, const Blk *b, f32 *out, int n)
         f32 r = a->rat[j];
         r *= 1.0f + stretch * 0.06f * (r - 1.0f) * (j & 1 ? 1.0f : -0.6f);     /* TWIST pulls the partials apart */
         d[j] = minf(f * r, 0.45f);
-        amp[j] = a->amp[j] * (0.15f + 1.1f * N.bloom) * v->s[j + 1] * (d[j] > 0.4f ? 0.0f : 1.0f);
+        /* (a partial near half the rate fades out, as a glide or TWIST takes it there, instead of being
+         * cut off between one block and the next: a click) */
+        amp[j] = a->amp[j] * (0.15f + 1.1f * N.bloom) * v->s[j + 1] * sat((0.42f - d[j]) * 25.0f);
         if (a->swell > 0.0f)
             amp[j] *= lerpf(1.0f, late * (1.0f + (f32)j * 0.3f), a->swell);
     }
