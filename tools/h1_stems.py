@@ -81,6 +81,12 @@ def main():
             bad.append(f"{i * 0.5:.1f} s: a stem without the master")
     if resid > 0.2 * master:
         bad.append(f"the stems are {resid / master:.0%} off the master")
+    mute = os.path.join(os.path.dirname(sys.argv[1]), "stems_mute.wav")
+    if os.path.exists(mute):                         # layer 1 muted: stem 1 silent, the hand still on stem 4
+        _, mc = read(mute)
+        r = [pair_rms(mc, p, 0, rate // 2) for p in range(5)]
+        if r[1] > 2 or r[4] < 0.6 * r[0]:
+            bad.append(f"layer 1 muted: stem 1 at {r[1]:.0f}, stem 4 at {r[4]:.0f}, the master at {r[0]:.0f}")
     if bad:
         sys.exit("stems: " + "; ".join(bad))
     print(f"stems: four pairs heard, {resid / master:.0%} of the master is not on them (its effects)")

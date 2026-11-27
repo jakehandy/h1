@@ -36,3 +36,16 @@ wait 500
 key 3 up
 wait 1500
 usbwavstop
+# layer 1 muted in the layer view: it keeps its stem (silent now), so nothing moves and the hand stays on stem 4
+press PLAY
+wait 100
+tapkey w0
+wait 100
+release PLAY
+wait 600
+usbwav stems_mute.wav
+key 3 down
+wait 500
+key 3 up
+wait 1000
+usbwavstop

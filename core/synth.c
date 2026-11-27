@@ -1700,7 +1700,8 @@ static int voice_key(const Voice *v)
  * over the whole mix (the rumble filter, TONE, ECHO, SPACE, the metronome, the cue): 3-4, 5-6 and 7-8 are the
  * instruments of the recorded layers in the layer view's order, then the instrument in hand, one pair each; 9-10
  * everything else. Two layers on one instrument share its pair (an instrument's post runs over all its voices at
- * once). The limiter's gain goes on them as on the master, so they add up to the master without its effects. Only
+ * once). A layer no note is on any more (the loop cleared, the layers kept) takes none; a muted one keeps its
+ * own. The limiter's gain goes on them as on the master, so they add up to the master without its effects. Only
  * while a computer records (the port's get gives a frame, h1_stems); otherwise none of it runs. */
 #define NSTEM 4
 static f32 stem_b[2][NSTEM][2][CTRL];           /* two blocks: the one heard (the limiter looks a block ahead) and the next */
@@ -1708,6 +1709,7 @@ static uint8_t stem_ok[2], stem_w, stem_of[NINST];
 static int stem_on;
 static int16_t *(*stem_get)(uint32_t off, uint32_t *run);
 static uint32_t stem_stride;
+static volatile uint32_t lay_used = ~0u;         /* bit l - 1: layer l has notes (eng_layer_count, the main loop) */
 
 void eng_stems(int16_t *(*get)(uint32_t off, uint32_t *run), uint32_t stride)
 {
@@ -1721,7 +1723,8 @@ static APART void stem_map(void)
     for (i = 0; i < NINST; i++)
         stem_of[i] = 255;
     for (i = 0; i <= NLAYER; i++) {
-        in = i < NLAYER ? (layers() && st.layer[i].part ? PART_INST(st.layer[i].part) : -1) : cur_i;
+        in = i < NLAYER ? (layers() && st.layer[i].part && (lay_used >> i & 1u) ? PART_INST(st.layer[i].part) : -1)
+                        : cur_i;                 /* (a muted layer keeps its stem: a take in a DAW keeps its tracks) */
         if (in >= 0 && stem_of[in] == 255 && k < NSTEM - 1)
             stem_of[in] = (uint8_t)k++;
     }
@@ -2401,6 +2404,7 @@ int eng_loop_quiet(void)
 int eng_layer_count(void)
 {
     uint8_t used[NLAYER];
+    uint32_t mask = 0;
     int i, j, n = 0, ne = nlev;
     for (i = 0; i < NLAYER; i++)
         used[i] = 0;
@@ -2413,8 +2417,11 @@ int eng_layer_count(void)
         for (i = 0; i < ne && i < NLEV; i++)
             if (lev[i].lay && lev[i].lay <= NLAYER)
                 used[lev[i].lay - 1] = 1;
-    for (i = 0; i < NLAYER; i++)
+    for (i = 0; i < NLAYER; i++) {
         n += used[i];
+        mask |= (uint32_t)used[i] << i;
+    }
+    lay_used = mask;                             /* (the stems: only a layer with notes takes one) */
     return n;
 }
 

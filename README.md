@@ -156,7 +156,8 @@ it: the FM-1 isn't a sound card for the computer.
 Each stem is an instrument at its own volume and MASTER, dry: ECHO, SPACE, TONE, the metronome and
 the cue voice are only on 1-2, because they run over the whole mix. With fewer than three instruments
 on the loop's layers, the instrument in hand takes the next free stem, so without LAYERS what you
-play is on 3-4. Two layers on the same instrument share its stem. A recording app that wants stereo
+play is on 3-4. Two layers on the same instrument share its stem. A layer keeps its stem while muted, so a take
+in a DAW keeps its tracks; a layer with no notes left takes none. A recording app that wants stereo
 takes channels 1 and 2. To split a ten-channel file into five stereo ones, run
 `python3 tools/h1_stems.py REC.wav --split OUTDIR`.
 
