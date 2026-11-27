@@ -197,7 +197,7 @@ to a DAW. Hold both again to go back. It's never kept, so the FM-1 always starts
 | ALGORITHM | One of the instrument's eight algorithms. Each keeps its own four knob settings |
 | KNOB 1–4 | Home screen: the instrument's four live modulations. Settings page: its four columns |
 | SELECT | Home screen: tempo. Settings page: next page. Writing steps: moves the cursor |
-| FX SEL ENV LFO GLO ARP SEQ | Open that settings page. Press it again, or HOME, to go back. SELECT goes on past SEQ to the MIDI and SETUP pages |
+| FX SEL ENV LFO GLO ARP SEQ | Open that settings page. Press it again, or HOME, to go back. SELECT goes on past SEQ to the MIDI, SETUP and PLAY pages |
 | REC / PLAY | Loop: REC arms a take, again closes it, again overdubs. PLAY stops and starts it, and the loop is kept through a power-off. Step: REC turns step-write on and off, PLAY runs the pattern |
 | EDIT | Pins the knob strip on the home screen. On a settings page: back home with the strip up. Writing steps: leaves a rest |
 | OCT − / + | Octave, two each way. Press both for the middle octave |
@@ -225,7 +225,17 @@ held, and a small dot outside the ring shows where the knob is.
 
 On the SEQ page or while writing steps (or always, with LEDS on the SETUP page set to SEQ), the sixteen white keys light as the pattern, left to right: lit where
 there are notes, with the playing step flipped. Up to sixteen steps each key is a step, up to
-thirty-two each key is two. A step holds up to eight notes.
+thirty-two each key is two. A step holds up to eight notes. With LEDS set to SCALE, the keys in the
+KEYS page's scale are lit instead (the roots, on CHROM), a played one goes dark, and the steps stay off the keys.
+
+**The PLAY page** (SELECT on past SETUP) is for playing out. Each setting starts as before.
+
+| Knob | Setting | What it does |
+|---|---|---|
+| 1 | FX | EACH (as before) or ALL: every instrument gets the FX of the one in hand, and a change on the FX page goes to all of them, so changing instrument (or a layer on another) no longer changes the echo or the space |
+| 2 | MAX VOL | A cap on MASTER, 100% down to 20%: MASTER all the way up gives what it gave at that place, so the FM-1 can be handed to someone without it getting loud |
+| 3 | KEY VEL | The velocity the FM-1's own keys play at: 127 as before, or down to 32, to sit with an external keyboard's softer notes |
+| 4 | TRANSP | The panel's keys up or down to 12 semitones. Scale and root stay on the keys you play, so a shape you know plays in another key |
 
 The four knobs belong to the algorithm. Turn ALGORITHM and they stand where you last left them on
 that algorithm, not where they were on the one before. The settings pages and the instrument's
@@ -246,7 +256,11 @@ instrument's volume is shared by its layers (hold EDIT and turn MASTER or SELECT
 instrument under another). The eight voices are shared by all the layers, and a step holds eight
 notes in all. With the ARP on, the loop records the notes the arpeggiator played.
 A loop is 1 to 128 bars (BARS on the SEQ page) and holds 1,024 notes across all its layers; a note
-that doesn't fit says `LOOP FULL` on the screen instead of going missing. The picture is
+that doesn't fit says `LOOP FULL` on the screen instead of going missing. With LAYERS on and a loop
+recorded, BARS is the next take's length. Longer than the loop: the loop repeats itself out to it
+first, so a 2-bar drum take sits under the 8-bar chords you record next. Shorter: the take closes
+itself once it is that long and repeats over the whole loop, so a 2-bar pattern goes under a 16-bar
+melody without playing it eight times. The picture is
 the instrument in hand. With LAYERS off, everything recorded plays on the instrument in hand.
 The SEQ page's top line scrolls through the sequencer hotkeys and shows which way LAYERS is set.
 
@@ -255,6 +269,14 @@ restart (power off a second or two after closing a take; a long loop takes a lit
 left playing has room for dozens of takes this way (three, once it passes about 600 notes); stopping it
 with PLAY clears the space again. The
 instrument in hand and its knobs save once nothing is sounding. The step pattern and every instrument's settings save by themselves.
+
+**SONG** makes parts of the layers and plays them one after another. In the layer view (PLAY held),
+mute the layers a part should leave out and press OCT+: that is a part. Make up to sixteen, then press
+EDIT to turn the song on. The loop plays one part a pass, the next as it comes round, and the last goes
+back to the first. OCT- takes the last part off. The view's title says `SONG 2/4` while it plays. With
+the song on, the part says what is heard (a solo still wins); a layer recorded after the parts were
+made plays in all of them. The parts are saved with the loop, and CLEAR ALL clears them. In STEP the
+same, a part a time round the pattern.
 
 In the simulator: <kbd>A</kbd>–<kbd>'</kbd> are the white keys from F and <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>O</kbd> <kbd>P</kbd> <kbd>[</kbd>
 the black keys. <kbd>Z</kbd> <kbd>X</kbd> change the octave, <kbd>←</kbd> <kbd>→</kbd> change the
