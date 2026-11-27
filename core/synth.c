@@ -2125,7 +2125,7 @@ int eng_silent(void)
 }
 
 /* the stems of frames pos.. of the block heard, take of them, into the port's channels from frame at of this render */
-static void stems_out(uint32_t at, uint32_t pos, uint32_t take)
+static APART void stems_out(uint32_t at, uint32_t pos, uint32_t take)
 {
     const f32 (*b)[2][CTRL] = stem_b[stem_w ^ 1u];
     uint32_t run = 0, i;
