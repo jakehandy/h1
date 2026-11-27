@@ -610,6 +610,15 @@ static void layers_close(void)
 
 /* the layers no recorded note is on (in the loop or the steps) let go, all of their settings with them: after
  * a clear, so the layer view shows only what is there and a mute or solo left behind hushes nothing (#55, #71) */
+/* a layer gone: out of SONG's parts (its slot taken again later is a new layer to the song) */
+static void song_drop(int i)
+{
+    int j;
+    songp.known &= (uint16_t)~(1u << i);
+    for (j = 0; j < NSONG; j++)
+        songp.mask[j] &= (uint16_t)~(1u << i);
+}
+
 static void layers_tidy(void)
 {
     uint8_t used[NLAYER];
@@ -626,6 +635,7 @@ static void layers_tidy(void)
     for (i = 0; i < NLAYER; i++)
         if (!used[i] && !st.layer[i].open) {
             uint8_t *p = (uint8_t *)&st.layer[i];
+            song_drop(i);
             for (j = 0; j < (int)sizeof(Layer); j++)
                 p[j] = 0;
         }
@@ -665,6 +675,9 @@ static int layer_of(int lay, int part)
  * muted track's are); its volume is a gain on its voices in the mix. Only with LAYERS on: off, every
  * note follows the hand, layers or not. */
 static uint32_t lay_hushed;                      /* bit l - 1: layer l is not heard, as of this block */
+SongParts songp;
+static int song_cur;                             /* the part playing (not saved: a song starts at its first) */
+int eng_song_part(void) { return songp.n ? song_cur % songp.n : 0; }
 static void lay_hush_set(void)
 {
     uint32_t solo = 0, mute = 0;
@@ -674,6 +687,8 @@ static void lay_hush_set(void)
             if (st.layer[i].rsv[1] & LAY_SOLO) solo |= 1u << i;
             if (st.layer[i].rsv[1] & LAY_MUTE) mute |= 1u << i;
         }
+    if (songp.on && songp.n && !solo)            /* SONG: the part says what is heard (a solo still wins) */
+        mute = songp.known & ~songp.mask[song_cur % songp.n];
     lay_hushed = layers() ? (solo ? ~solo : mute) : 0u;
 }
 static int lay_hush(int lay) { return lay >= 1 && lay <= NLAYER && (lay_hushed >> (lay - 1) & 1u); }
@@ -857,6 +872,10 @@ static void loop_tick(f32 dticks)
             layers_close();
         }
         click_at = -1;
+        if (songp.on && songp.n) {               /* SONG: the next part, as it comes round */
+            song_cur = (song_cur + 1) % songp.n;
+            lay_hush_set();
+        }
         loop_play_range(0.0f, b);
     }
     loop_pos = b;
@@ -1221,6 +1240,7 @@ static void eff_note(int note, int on, int vel, int from_midi)
         click_at = -1;
         loop_state = LOOP_DUB;
         arp_acc = 1e9f;
+        song_cur = 0;
         take_fit();
     }
     if (on && loop_state == LOOP_ARMED) {
@@ -1356,6 +1376,7 @@ static APART void clear_layer(int lay)
         for (i = 0; i < (int)sizeof(Layer); i++)
             p[i] = 0;
     }
+    song_drop(lay - 1);
     rec_forget();
     loop_gen++;
     if (!nlev && (loop_state == LOOP_IDLE || loop_state == LOOP_PLAY)) {
@@ -1469,6 +1490,7 @@ static void handle(uint32_t e)
             loop_pos = 0.0f;
             click_at = -1;
             arp_acc = 1e9f;
+            song_cur = 0;
             loop_state = LOOP_PLAY;
             break;
         }
@@ -1514,6 +1536,9 @@ static void handle(uint32_t e)
         loop_gen++;
         loop_pos = 0.0f;
         loop_state = LOOP_EMPTY;
+        songp.on = songp.n = 0;
+        songp.known = 0;
+        song_cur = 0;
         layers_tidy();
         break;
     default: break;

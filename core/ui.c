@@ -333,6 +333,8 @@ static uint32_t lay_heard(void)                  /* bit k: layer k + 1 is there 
             if (st.layer[i].rsv[1] & LAY_SOLO) solo |= 1u << i;
             if (st.layer[i].rsv[1] & LAY_MUTE) mute |= 1u << i;
         }
+    if (songp.on && songp.n && !solo)            /* SONG: the part playing says (as the engine has it) */
+        mute = songp.known & ~songp.mask[eng_song_part()];
     return solo ? solo : have & ~mute;
 }
 
@@ -363,9 +365,56 @@ static APART void lv_key_up(int k)
     mark_dirty();
 }
 
+/* SONG (0.4.0), with PLAY held and no layer key: OCT+ makes a part of the layers heard now, OCT- takes the
+ * last part off, EDIT turns the song on and off */
+static APART int song_button(int btn)
+{
+    uint32_t have = 0;
+    int i;
+    if (btn != H1_BTN_OCTUP && btn != H1_BTN_OCTDN && btn != H1_BTN_EDIT)
+        return 0;
+    lv_used = 1;
+    btn_fired[btn] = 3;
+    for (i = 0; i < NLAYER; i++)
+        if (st.layer[i].part)
+            have |= 1u << i;
+    if (btn == H1_BTN_OCTUP) {
+        if (!have)
+            toast("NO LAYERS", 0, 0, 0, -1);
+        else if (songp.n >= NSONG)
+            toast("SONG FULL", 0, 0, 0, -1);
+        else {
+            songp.mask[songp.n] = (uint16_t)lay_heard();
+            songp.known |= (uint16_t)have;
+            songp.n++;
+            toast("PART ", songp.n, 1, " ADDED", -1);
+        }
+    } else if (btn == H1_BTN_OCTDN) {
+        if (!songp.n)
+            toast("NO PARTS", 0, 0, 0, -1);
+        else {
+            songp.n--;
+            toast("PART ", songp.n + 1, 1, " REMOVED", -1);
+            if (!songp.n)
+                songp.on = 0;
+        }
+    } else if (!songp.n)
+        toast("NO PARTS: OCT+ ADDS", 0, 0, 0, -1);
+    else {
+        songp.on ^= 1;
+        if (songp.on)
+            toast("SONG ON: ", songp.n, 1, " PARTS", -1);
+        else
+            toast("SONG OFF", 0, 0, 0, -1);
+    }
+    return 1;
+}
+
 /* a button pressed while PLAY is held: REC on a layer key clears that layer */
 static APART int layview_button(int btn)
 {
+    if (lv_play && lv_key < 0)
+        return song_button(btn);
     if (!lv_play || btn != H1_BTN_REC || lv_key < 0)
         return 0;
     lv_used = lv_key_fired = 1;
@@ -447,11 +496,18 @@ static APART void draw_layview(void)
 {
     uint32_t heard = lay_heard();
     int i;
-    char b[4];
+    char b[4], b2[16];
     g_mode(G_PAINT);
     g_rect(4.0f, 30.0f, 232.0f, 178.0f, 0.0f);
     g_mode(G_MAX);
-    g_text(120.0f, 34.0f, "LAYERS", 12.0f, 1.6f, 1.0f, 1);
+    if (songp.n) {                               /* SONG: "SONG 2/4" playing, "SONG 4 PARTS" off */
+        char *d = put_s(b2, "SONG ");
+        if (songp.on)
+            d = put_s(put_i(d, eng_song_part() + 1), "/");
+        put_s(put_i(d, songp.n), songp.on ? "" : " PARTS");
+        g_text(120.0f, 34.0f, b2, 12.0f, 1.6f, 1.0f, 1);
+    } else
+        g_text(120.0f, 34.0f, "LAYERS", 12.0f, 1.6f, 1.0f, 1);
     for (i = 0; i < NLAYER; i++) {
         const Layer *l = &st.layer[i];
         f32 x = 10.0f + (f32)(i & 3) * 56.0f, y = 54.0f + (f32)(i >> 2) * 37.0f, a;
