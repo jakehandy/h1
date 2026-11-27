@@ -33,6 +33,10 @@ crash_history = true
 # records it straight off the cable: the sound at MASTER. Nothing played back through it (usb_audio_out).
 usb_audio_in = true
 usb_audio_out = false
+# stems: the USB audio input has ten channels, the master on 1 and 2 and four stereo stems after it (core/h1.h
+# h1_stems): 3-4, 5-6 and 7-8 the instruments of the recorded layers in the layer view's order, then the one in hand;
+# 9-10 the rest. 44.1 kHz only, and the ring takes 20 bytes a frame (10 KB instead of 2)
+usb_audio_channels = 10
 # a USB serial number from the chip's ID: a computer tells this FM-1 apart by it, not by the port it is in (macOS
 # otherwise keeps what it learnt of another firmware on that port: 0.3.1, for a computer that did not see h1's audio)
 usb_serial = true

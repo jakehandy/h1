@@ -499,6 +499,9 @@ void app_init(void)
     if (plat_cpu2_set(1) == 0)                              /* (app_init is the one moment it can start) */
         h1_two_cores(core2_run, core2_wait);
 #endif
+#if PLAT_USB_CH >= 8
+    h1_stems(plat_usb_ch, PLAT_USB_CH_STRIDE);              /* USB audio's channels 3..10: four stereo stems */
+#endif
     if (last_start_failed())
         return;
     h1_state(&size);
@@ -530,11 +533,26 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     float m = held < 0 ? (float)master_q12 * (1.0f / 4096.0f) : p * p;
     float gain = m * m;                                     /* and the square of that: MASTER's curve on the FM-1 */
     uint32_t i, t0 = plat_ticks24(), us;
+#if PLAT_USB_CH >= 8
+    uint32_t run = 0;
+    int16_t *u = plat_usb_ch(0, &run);                      /* the stems, at MASTER too (NULL: nobody records) */
+#endif
     h1_render(lr, n);                                       /* 24-bit, already limited */
     for (i = 0; i < n; i++) {
         gain_now += (gain - gain_now) * 0.004f;             /* ~5 ms: turning MASTER does not click */
         lr[2 * i] = (int32_t)((float)lr[2 * i] * gain_now);
         lr[2 * i + 1] = (int32_t)((float)lr[2 * i + 1] * gain_now);
+#if PLAT_USB_CH >= 8
+        if (u) {
+            int32_t g = (int32_t)(gain_now * 32768.0f), k;
+            if (!run && !(u = plat_usb_ch(i, &run)))
+                continue;
+            for (k = 0; k < 8; k++)
+                u[k] = (int16_t)(u[k] * g >> 15);
+            u += PLAT_USB_CH_STRIDE;
+            run--;
+        }
+#endif
     }
     us = US(plat_ticks24() - t0);
     pf_audio += us;

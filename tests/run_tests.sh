@@ -3,7 +3,7 @@
 # and core as the firmware), then LAYERS (tests/layers.c), each algorithm's own knobs, the resets and a
 # step's eight notes (tests/knobs.c), each instrument's own volume and the volume ring (tests/volume.c),
 # what 0.2.2 adds (tests/v022.c), ECHO after a long time on (tests/echo.c), two cores (tests/cores.c), what is hidden in the pictures (tests/eggs.c) and the line drawing (tests/lines.c) on the core alone. The release workflow
-# runs this after the build; a failure stops it.
+# runs this after the build; a failure stops it. (tests/stems.txt: the USB audio input's four stems, checked by tools/h1_stems.py)
 set -eu
 cd "$(dirname "$0")/.."
 ./build.sh --host
@@ -19,6 +19,9 @@ rm -f "$out/export.syx"
 python3 tools/h1_loop_mid.py "$out/export.syx" "$out/export.mid" > "$out/export.txt"
 cat "$out/export.txt"
 grep -q "h1 loop: 51 notes, 3 tracks" "$out/export.txt"
+# stems (USB audio's channels 3..10): three layers and the instrument in hand, each on its own pair, adding up to the master
+"$out/h1_host" tests/stems.txt "$out"
+python3 tools/h1_stems.py "$out/stems.wav" --check
 # (that build has the second core, as the firmware does: the simulator runs its jobs at once, in order)
 # and the build without it: the same script
 FM1B_CPU2=0 ./build.sh --host

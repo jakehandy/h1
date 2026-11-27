@@ -2,7 +2,7 @@
 
 ## 0.3.3
 
-Identity `FM-1_481000303`. Fixes from the GitHub issues since 0.3.2.
+Identity `FM-1_481000303`. USB audio stems, and fixes from the GitHub issues since 0.3.2.
 
 **Loops and layers**
 - A deleted loop no longer comes back (#71). The loop h1 kept before 0.3.0 was never emptied, and came back
@@ -16,6 +16,12 @@ Identity `FM-1_481000303`. Fixes from the GitHub issues since 0.3.2.
   layers were lost gets them back, at full and heard.
 - With SNAP on, the arpeggiator's notes go into the loop on its own RATE (#49). They were snapped to 1/16,
   which broke triplets and 1/32s.
+
+**USB audio stems**
+- The USB audio input has ten channels: the mix on 1 and 2 as before, and four stereo stems on 3 to 10. The
+  instruments of the loop's layers, in the layer view's order, get a stem each (the instrument in hand the
+  next free one), and the fourth carries the rest. Stems are dry: ECHO, SPACE and TONE are on the mix only.
+  A DAW sees one track per channel; `tools/h1_stems.py` splits a ten-channel recording into stereo files.
 
 ## 0.3.2
 
