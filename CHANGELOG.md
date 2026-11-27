@@ -2,8 +2,9 @@
 
 ## 0.4.0
 
-Identity `FM-1_481000400`. What the GitHub issues and Reddit asked for most. Saved states and loops from 0.3.x
-load as they were; every new setting starts as before.
+Identity `FM-1_481000400`. What the GitHub issues and Reddit asked for most, USB audio stems, and the
+fixes since 0.3.2 (0.3.3 was never released: it is all here). Saved states and loops from 0.3.x load as
+they were; every new setting starts as before.
 
 **Loops**
 - A take can be shorter or longer than the loop (#69). With LAYERS on and a loop recorded, BARS on the SEQ page
@@ -33,11 +34,7 @@ load as they were; every new setting starts as before.
 - SETUP's LEDS has a third setting, **SCALE**: the keys in the KEYS page's scale are lit (the roots, on
   CHROM), a played one goes dark, and the sequencer's steps stay off the keys.
 
-## 0.3.3
-
-Identity `FM-1_481000303`. USB audio stems, and fixes from the GitHub issues since 0.3.2.
-
-**Loops and layers**
+**Fixes to loops and layers**
 - A deleted loop no longer comes back (#71). The loop h1 kept before 0.3.0 was never emptied, and came back
   whenever the loop's own space held none (another firmware had it, say). It is emptied now, once the loop
   is safely in its new place.
