@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.3
+
+Identity `FM-1_481000303`. Fixes from the GitHub issues since 0.3.2.
+
+**Loops and layers**
+- A deleted loop no longer comes back (#71). The loop h1 kept before 0.3.0 was never emptied, and came back
+  whenever the loop's own space held none (another firmware had it, say). It is emptied now, once the loop
+  is safely in its new place.
+- CLEAR ALL clears the layers too (#55, #71): the layer view shows only what is recorded, and a solo left on a
+  cleared layer no longer silences the takes after it.
+- The steps and the layers are saved with the loop, while it plays (#39, #71). They were saved only once
+  nothing sounded, so a pattern written, or a layer recorded, while the loop or the steps played could be gone
+  after a power-off, and the layer view could miss layers that still played. A loop saved by 0.3.2 whose
+  layers were lost gets them back, at full and heard.
+- With SNAP on, the arpeggiator's notes go into the loop on its own RATE (#49). They were snapped to 1/16,
+  which broke triplets and 1/32s.
+
 ## 0.3.2
 
 Identity `FM-1_481000302`.

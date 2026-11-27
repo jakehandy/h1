@@ -245,7 +245,9 @@ static void midi_send(uint8_t status, uint8_t d1, uint8_t d2)
  * header reads right holds a whole loop. The newest such record is the loop. A save given up part-way gets a
  * header marked dead, so the records after it can still be found. Slots are erased at start (before the
  * sound) and once the loop is stopped and nothing sounds, all but the one holding the loop.
- * Before this the loop was store object OBJ_LOOP: read once, when the ring holds none. */
+ * A record holds the song after the loop (h1_song: the steps and the layers, 0.3.3), so they keep while it plays.
+ * Before this the loop was store object OBJ_LOOP: read once, when the ring holds none, then emptied once the ring
+ * has the loop (it came back after another firmware had the ring's sectors, #71). */
 #define RING_SECT 5u                     /* sectors a slot */
 #define RING_SLOTS 4u
 #define RING_SLOT_BYTES (RING_SECT * 4096u)
@@ -255,7 +257,7 @@ static void midi_send(uint8_t status, uint8_t d1, uint8_t d2)
 #define RING_DEAD 0x584C3148u            /* "H1LX": a save given up; its length says how far it got */
 #define RING_PAGE 256u
 #define RING_FULL RING_SLOT_BYTES        /* (a slot's fill: no more records go in until it is erased) */
-typedef char loop_fits_a_slot[H1_LOOP_MAX <= RING_SLOT_BYTES - RING_BODY ? 1 : -1];
+typedef char loop_fits_a_slot[H1_LOOP_MAX + H1_SONG_MAX <= RING_SLOT_BYTES - RING_BODY ? 1 : -1];
 typedef char ring_in_the_data_area[RING_BASE >= PLAT_DATA_LO ? 1 : -1];
 
 static struct {
@@ -273,6 +275,9 @@ static struct {
 #define RING_WAIT 20u                    /* (a third of a second: the save keeps clear of the take's own close) */
 static const uint8_t *ring_src;          /* the blob being written, as h1_loop gave it: it holds until a take
                                           * records again (then the loop is dirty again, and saved anew) */
+static const uint8_t *ring_song;         /* and the song after it (h1_song's copy), from ring_n1 on */
+static uint32_t ring_n1;
+static int ring_force;                   /* a loop from OBJ_LOOP: into the ring, dirty or not */
 #define RING_MAX (RING_SLOT_BYTES - RING_BODY)
 
 static uint32_t ring_off(int slot) { return RING_BASE + (uint32_t)slot * RING_SLOT_BYTES; }
@@ -393,7 +398,7 @@ static void ring_step(void)
             if (n > RING_PAGE)
                 n = RING_PAGE;
             for (k = 0; k < n; k++)
-                page[k] = ring_src[ring.at + k];
+                page[k] = ring.at + k < ring_n1 ? ring_src[ring.at + k] : ring_song[ring.at + k - ring_n1];
             ring.crc = crc32_run(ring.crc, page, n);
             if (plat_data_write(off + RING_BODY + ring.at, page, n) != 0) {
                 ring.at += n;                    /* (a failed write: given up, the save tried anew) */
@@ -417,6 +422,7 @@ static void ring_step(void)
                     ring.cur = ring.to;
                     ring.cur_at = ring.to_at;
                     ring.seq++;
+                    ring_force = 0;
                     h1_loop_saved();
                 }
             } else
@@ -425,12 +431,15 @@ static void ring_step(void)
         }
         return;
     }
-    if (!h1_loop_dirty())
+    if (!h1_loop_dirty() && !ring_force)
         ring.wait = 0;
     else if (++ring.wait > RING_WAIT) {
-        uint32_t size, gen = h1_loop_gen();
+        uint32_t size, sn, gen = h1_loop_gen();
         const uint8_t *p = (const uint8_t *)h1_loop(&size);
-        if (!size || size > RING_MAX)
+        ring_song = (const uint8_t *)h1_song(&sn);
+        ring_n1 = size;
+        size += sn;
+        if (sn == size || size > RING_MAX)
             return;
         for (i = 0; i < (int)RING_SLOTS; i++) {  /* the slot holding the loop first, then the others */
             int sl = ring.cur >= 0 ? (ring.cur + i) % (int)RING_SLOTS : i;
@@ -499,10 +508,14 @@ void app_init(void)
     {                                                       /* then the loop (the state's load empties it) */
         uint32_t len;
         const uint8_t *lp = ring_start(&len);
-        if (lp)
+        if (lp) {
             h1_loop_load(lp, len);
-        else if ((n = plat_store_load(OBJ_LOOP, blob, sizeof blob)) > 0)
+            if (plat_store_size(OBJ_LOOP) > 0)              /* the ring has it: the old one gone, or it would come */
+                plat_store_save(OBJ_LOOP, blob, 0);         /* back whenever the ring holds none (#71) */
+        } else if ((n = plat_store_load(OBJ_LOOP, blob, sizeof blob)) > 0) {
             h1_loop_load(blob, (uint32_t)n);                /* (one saved before the ring: it goes there next) */
+            ring_force = 1;
+        }
     }
 }
 
