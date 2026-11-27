@@ -74,6 +74,10 @@ ASAN_OPTIONS=detect_leaks=0 build/h1eggs
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/*.c tests/v031.c -o build/h1v031 -lm
 ASAN_OPTIONS=detect_leaks=0 build/h1v031
+# 0.3.3: CLEAR ALL lets go of the layers; the steps and the layers saved with the loop's record
+"${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
+    core/*.c tests/song.c -o build/h1song -lm
+ASAN_OPTIONS=detect_leaks=0 build/h1song
 # g_line against a distance worked out in floats at every pixel: never more than one ink level off
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/gfx.c tests/lines.c -o build/h1lines -lm

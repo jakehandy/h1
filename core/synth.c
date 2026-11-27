@@ -600,30 +600,41 @@ static void layers_close(void)
         }
 }
 
+/* the layers no recorded note is on (in the loop or the steps) let go, all of their settings with them: after
+ * a clear, so the layer view shows only what is there and a mute or solo left behind hushes nothing (#55, #71) */
+static void layers_tidy(void)
+{
+    uint8_t used[NLAYER];
+    int i, j;
+    for (i = 0; i < NLAYER; i++)
+        used[i] = 0;
+    for (i = 0; i < nlev; i++)
+        if (lev[i].lay)
+            used[(lev[i].lay - 1) & (NLAYER - 1)] = 1;
+    for (i = 0; i < NSTEP; i++)
+        for (j = 0; j < NSNOTE; j++)
+            if (st.steps[i][j] && st.step_lay[i][j])
+                used[(st.step_lay[i][j] - 1) & (NLAYER - 1)] = 1;
+    for (i = 0; i < NLAYER; i++)
+        if (!used[i] && !st.layer[i].open) {
+            uint8_t *p = (uint8_t *)&st.layer[i];
+            for (j = 0; j < (int)sizeof(Layer); j++)
+                p[j] = 0;
+        }
+}
+
 /* the layer what is played now goes into: the open one of the part in hand, or a new one. 0 when there is no
  * room (then the notes follow their part as it is, as they did before layers had settings) */
 static int layer_take(void)
 {
-    uint8_t used[NLAYER];
-    int part = live_part(), i, j;
+    int part = live_part(), i;
     for (i = 0; i < NLAYER; i++)
         if (st.layer[i].part == part && st.layer[i].open)
             return i + 1;
     for (i = 0; i < NLAYER && st.layer[i].part; i++)
         ;
     if (i == NLAYER) {                           /* full: the layers no recorded note is on any more are let go */
-        for (i = 0; i < NLAYER; i++)
-            used[i] = 0;
-        for (i = 0; i < nlev; i++)
-            if (lev[i].lay)
-                used[(lev[i].lay - 1) & (NLAYER - 1)] = 1;
-        for (i = 0; i < NSTEP; i++)
-            for (j = 0; j < NSNOTE; j++)
-                if (st.steps[i][j] && st.step_lay[i][j])
-                    used[(st.step_lay[i][j] - 1) & (NLAYER - 1)] = 1;
-        for (i = 0; i < NLAYER; i++)
-            if (!used[i] && !st.layer[i].open)
-                st.layer[i].part = 0;
+        layers_tidy();
         for (i = 0; i < NLAYER && st.layer[i].part; i++)
             ;
         if (i == NLAYER)
@@ -839,10 +850,13 @@ static void loop_tick(f32 dticks)
     loop_pos = b;
 }
 
+static int arp_recorded(void);
 static void loop_record(int note, int on, int vel)
 {
     static const f32 Q[3] = {0.0f, 24.0f, 48.0f};
     f32 t = loop_pos, q = Q[st.seq[3] < 3 ? st.seq[3] : 0];
+    if (q > 0.0f && arp_recorded())              /* the arpeggiator's notes to its own RATE, not to SNAP's 1/16: its */
+        q = RATE_TICKS[st.ip[cur_i].arp[1] < 6 ? st.ip[cur_i].arp[1] : 3];   /* triplets and 1/32s kept (#49) */
     int part, lay, kept;
     LEv *e;
     note &= 127;
@@ -1372,6 +1386,7 @@ static void handle(uint32_t e)
             if (st.seq[0] == SEQ_STEP) {
                 for (i = 0; i < NSTEP; i++)
                     step_clear_inst(i, inst);
+                layers_tidy();
                 break;
             }
             for (i = 0; i < nlev; i++)
@@ -1384,6 +1399,7 @@ static void handle(uint32_t e)
                 loop_pos = 0.0f;
                 loop_state = LOOP_EMPTY;
             }
+            layers_tidy();
             break;
         }
         if (st.seq[0] == SEQ_STEP) {
@@ -1392,6 +1408,7 @@ static void handle(uint32_t e)
             for (i = 0; i < NSTEP; i++)
                 step_clear(i);
             step_cursor = 0;
+            layers_tidy();
             break;
         }
         loop_release();
@@ -1400,6 +1417,7 @@ static void handle(uint32_t e)
         loop_gen++;
         loop_pos = 0.0f;
         loop_state = LOOP_EMPTY;
+        layers_tidy();
         break;
     default: break;
     }
@@ -2371,6 +2389,10 @@ int eng_loop_load(const uint8_t *b, uint32_t n)
             d->note = e[2] & 127u;
             d->on = e[3] & 1u;
             d->part = b[4] == 1 ? PART_V8(e[4]) : part_ok(e[4]) ? e[4] : 0u;
+            if (d->part && e[5] >= 1 && e[5] <= NLAYER && !st.layer[e[5] - 1].part) {
+                st.layer[e[5] - 1].part = d->part;  /* a layer the state lost (saved apart, before 0.3.3): back, at */
+                layer_snap(&st.layer[e[5] - 1]);    /* full and heard, on the part's settings as they are now */
+            }
             d->lay = (uint8_t)layer_of(e[5], d->part);
             d->vel = e[6] & 127u;
             d->rsv = 0;
@@ -2383,6 +2405,7 @@ int eng_loop_load(const uint8_t *b, uint32_t n)
     loop_pos = 0.0f;
     loop_state = nlev ? LOOP_IDLE : LOOP_EMPTY;
     loop_gen++;
+    layers_tidy();                               /* (layers a state kept that this loop has no note on) */
     return 0;
 }
 

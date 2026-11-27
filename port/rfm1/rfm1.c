@@ -159,14 +159,18 @@ static void state_out(void)
 /* the loop recorder's loop, as the device keeps it in a store object of its own: here at LOOP_AT */
 static void loop_out(void)
 {
-    uint32_t n, i;
+    uint32_t n, sn, i;
     const uint8_t *s = (const uint8_t *)h1_loop(&n);
-    if (!n || n > 0x8000u - 16u)
+    const uint8_t *g = (const uint8_t *)h1_song(&sn);   /* (the steps and the layers after it, as the device's ring) */
+    if (!n || n + sn > 0x8000u - 16u)
         return;
-    put32(image + LOOP_AT, MAGIC ^ 0x4C4F4F50u);
-    put32(image + LOOP_AT + 4, n);
+    for (i = 0; i < sn; i++)
+        image[LOOP_AT + 8 + n + i] = g[i];
     for (i = 0; i < n; i++)
         image[LOOP_AT + 8 + i] = s[i];
+    n += sn;
+    put32(image + LOOP_AT, MAGIC ^ 0x4C4F4F50u);
+    put32(image + LOOP_AT + 4, n);
     put32(image + LOOP_AT + 8 + n, crc32(image + LOOP_AT, 8 + n));
     h1_loop_saved();
     flash_writes++;

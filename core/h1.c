@@ -44,6 +44,9 @@ static const uint8_t OPT_MAX[NOPT] = {16, 2, 1, 1, 1, 1, 2, 1};
 
 /* rsv[0]: the channel (0 all, 1..16), PEDAL << 5, WHEEL << 6, LEDS << 7. rsv[1]: BEND, ANIM << 2, EGGS << 3,
  * SCREEN << 4. */
+static uint32_t song_saved, song_given;       /* the song's hash as saved, and as last given (h1_song) */
+static uint32_t song_hash(void);
+
 SMALL void opt_unpack(void)
 {
     int i;
@@ -74,6 +77,7 @@ SMALL void h1_init(uint32_t sample_rate)
     opt_unpack();
     eng_init(sample_rate);
     ui_init();
+    song_saved = song_hash();
 }
 
 void h1_frame(uint32_t now_ms) { ui_frame(now_ms); }
@@ -108,6 +112,44 @@ static void bytes(void *to, const uint8_t *from, uint32_t n)
     uint8_t *d = (uint8_t *)to;
     while (n--)
         *d++ = *from++;
+}
+
+/* the song's part of the state (the sequencer's settings, the steps, the layers) brought into range: after the
+ * state, and after a loop's record that carries them (h1_loop_load) */
+SMALL static void song_tidy(void)
+{
+    uint32_t n;
+    int i, j;
+    st.seq[0] &= 1;
+    if (st.seq[1] > 7) st.seq[1] = 1;              /* bars: 1 to 128 (0.2.2 had 1 to 8) */
+    if (st.seq[3] > 2) st.seq[3] = 1;
+    if (st.seq[4] > 2) st.seq[4] = 1;
+    if (st.seq[5] > 2) st.seq[5] = CLICK_REC;
+    st.seq[6] &= 1;
+    for (i = 0; i < NSTEP; i++)
+        for (j = 0; j < NSNOTE; j++) {
+            if (st.steps[i][j] > 128) st.steps[i][j] = 0;
+            if (st.step_vel[i][j] > 127) st.step_vel[i][j] = 127;
+            if (st.step_lay[i][j] > NLAYER) st.step_lay[i][j] = 0;
+            if (!part_ok(st.step_part[i][j])) st.step_part[i][j] = 0;
+        }
+    for (i = 0; i < NLAYER; i++) {
+        Layer *l = &st.layer[i];
+        if (!part_ok(l->part)) {
+            uint8_t *p = (uint8_t *)l;
+            for (n = 0; n < sizeof *l; n++)
+                p[n] = 0;
+            continue;
+        }
+        l->open = 0;
+        if (l->rsv[0] > 100) l->rsv[0] = 0;      /* how far the layer is turned down */
+        l->rsv[1] &= LAY_MUTE | LAY_SOLO;
+        for (j = 0; j < 4; j++) {
+            if (l->knob[j] > 100) l->knob[j] = 100;
+            if (l->env[j] > 100) l->env[j] = 100;
+            l->lfo[j] = (uint8_t)iclamp(l->lfo[j], page_param(PG_LFO, j)->min, page_param(PG_LFO, j)->max);
+        }
+    }
 }
 
 SMALL int h1_state_load(const void *blob, uint32_t size)
@@ -212,38 +254,10 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
             }
         st.inst = keep;
     }
-    st.seq[0] &= 1;
-    if (st.seq[1] > 7) st.seq[1] = 1;              /* bars: 1 to 128 (0.2.2 had 1 to 8) */
-    if (st.seq[3] > 2) st.seq[3] = 1;
-    if (st.seq[4] > 2) st.seq[4] = 1;
-    if (st.seq[5] > 2) st.seq[5] = CLICK_REC;
-    st.seq[6] &= 1;
-    for (i = 0; i < NSTEP; i++)
-        for (j = 0; j < NSNOTE; j++) {
-            if (st.steps[i][j] > 128) st.steps[i][j] = 0;
-            if (st.step_vel[i][j] > 127) st.step_vel[i][j] = 127;
-            if (st.step_lay[i][j] > NLAYER) st.step_lay[i][j] = 0;
-            if (!part_ok(st.step_part[i][j])) st.step_part[i][j] = 0;
-        }
-    for (i = 0; i < NLAYER; i++) {
-        Layer *l = &st.layer[i];
-        if (!part_ok(l->part)) {
-            uint8_t *p = (uint8_t *)l;
-            for (n = 0; n < sizeof *l; n++)
-                p[n] = 0;
-            continue;
-        }
-        l->open = 0;
-        if (l->rsv[0] > 100) l->rsv[0] = 0;      /* how far the layer is turned down */
-        l->rsv[1] &= LAY_MUTE | LAY_SOLO;
-        for (j = 0; j < 4; j++) {
-            if (l->knob[j] > 100) l->knob[j] = 100;
-            if (l->env[j] > 100) l->env[j] = 100;
-            l->lfo[j] = (uint8_t)iclamp(l->lfo[j], page_param(PG_LFO, j)->min, page_param(PG_LFO, j)->max);
-        }
-    }
+    song_tidy();
     eng_init(0);
     ui_init();
+    song_saved = song_hash();                    /* (the state has it: no record needed until it moves) */
     return 0;
 }
 
@@ -282,11 +296,44 @@ void h1_set_ink(int inst, uint8_t r, uint8_t g, uint8_t b)
 /* ---- the loop, saved apart (h1.h) ---------------------------------------------------------------- */
 static uint32_t loop_saved_gen, loop_given_gen;
 
+/* The song (0.3.3): what goes with the loop besides its notes, the sequencer's settings, the steps and the
+ * layers, saved with it in its record (h1_song). The state holds them too, but the state is saved only once
+ * nothing sounds, so a pattern or a layer made while the loop played was lost at a power-off (#39, #71). */
+#define SONG_MAGIC 0x47533148u                   /* "H1SG" */
+static const struct { uint8_t *p; uint16_t n; } song_parts[] = {
+    {st.seq, sizeof st.seq}, {&st.steps[0][0], sizeof st.steps}, {&st.step_part[0][0], sizeof st.step_part},
+    {&st.step_vel[0][0], sizeof st.step_vel}, {&st.step_lay[0][0], sizeof st.step_lay},
+    {(uint8_t *)st.layer, sizeof st.layer},
+};
+#define SONG_N (4u + sizeof st.seq + 4u * sizeof st.steps + sizeof st.layer)
+typedef char song_is_h1s[SONG_N == H1_SONG_MAX ? 1 : -1];
+
+static uint32_t song_hash(void)                  /* FNV-1a: it moves when any of it does */
+{
+    uint32_t h = 2166136261u, i, k;
+    for (i = 0; i < sizeof song_parts / sizeof song_parts[0]; i++)
+        for (k = 0; k < song_parts[i].n; k++)
+            h = (h ^ song_parts[i].p[k]) * 16777619u;
+    return h;
+}
+
+const void *h1_song(uint32_t *size)
+{
+    static uint8_t b[SONG_N];
+    uint32_t i, at = 4;
+    b[0] = (uint8_t)SONG_MAGIC; b[1] = (uint8_t)(SONG_MAGIC >> 8); b[2] = (uint8_t)(SONG_MAGIC >> 16); b[3] = (uint8_t)(SONG_MAGIC >> 24);
+    for (i = 0; i < sizeof song_parts / sizeof song_parts[0]; at += song_parts[i].n, i++)
+        bytes(b + at, song_parts[i].p, song_parts[i].n);
+    *size = SONG_N;
+    return b;
+}
+
 const void *h1_loop(uint32_t *size)
 {
     uint32_t n;
     const void *p;
     loop_given_gen = eng_loop_gen();
+    song_given = song_hash();
     p = eng_loop_blob(&n);
     if (size)
         *size = n;
@@ -316,14 +363,24 @@ SMALL const void *h1_loop_export(uint32_t *size, uint8_t meta[H1_META_N])
 
 int h1_loop_load(const void *blob, uint32_t size)
 {
-    int r = eng_loop_load((const uint8_t *)blob, size);
+    const uint8_t *b = (const uint8_t *)blob;
+    uint32_t at = size >= 12u ? 12u + 8u * ((uint32_t)b[6] | (uint32_t)b[7] << 8) : size, i;
+    int r;
+    if (size >= at + SONG_N && b[at] == (uint8_t)SONG_MAGIC && b[at + 1] == (uint8_t)(SONG_MAGIC >> 8)
+        && b[at + 2] == (uint8_t)(SONG_MAGIC >> 16) && b[at + 3] == (uint8_t)(SONG_MAGIC >> 24)) {
+        for (at += 4u, i = 0; i < sizeof song_parts / sizeof song_parts[0]; at += song_parts[i].n, i++)
+            bytes(song_parts[i].p, b + at, song_parts[i].n);
+        song_tidy();                             /* (the record's song before its notes: they name its layers) */
+    }
+    r = eng_loop_load(b, size);
     loop_saved_gen = eng_loop_gen();
+    song_saved = song_hash();
     return r;
 }
 
 uint32_t h1_loop_gen(void) { return eng_loop_gen(); }
 int h1_loop_room(void) { return (NLEV - eng_loop_used()) / 2; }
 int h1_loop_quiet(void) { return eng_loop_quiet(); }
-int h1_loop_dirty(void) { return eng_loop_gen() != loop_saved_gen && !eng_loop_taking(); }
-void h1_loop_saved(void) { loop_saved_gen = loop_given_gen; }
+int h1_loop_dirty(void) { return (eng_loop_gen() != loop_saved_gen || song_hash() != song_saved) && !eng_loop_taking(); }
+void h1_loop_saved(void) { loop_saved_gen = loop_given_gen; song_saved = song_given; }
 void h1_midi_out(void (*fn)(uint8_t status, uint8_t d1, uint8_t d2)) { eng_midi_fn = fn; }
