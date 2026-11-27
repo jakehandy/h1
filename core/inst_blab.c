@@ -133,8 +133,9 @@ typedef struct Syl {
     uint8_t word;                /* 1: the first syllable of a word */
 } Syl;
 
-static Syl syl[NPHRASE][NSYL];
-static uint8_t nsyl[NPHRASE];
+/* the phrase being sung, in phones: one at a time, made when WORDS turns to it (SRAM is short) */
+static Syl syl[NSYL];
+static uint8_t nsyl, sylp = 0xFF, ready;
 /* your own, twice over: the keys write one while the voice sings from the other, then they swap */
 static Syl mine[2][NSYL];
 static uint8_t nmine[2];
@@ -143,8 +144,8 @@ static volatile uint8_t mcur, mine_gen;
 volatile uint8_t blab_writing;
 static volatile int8_t want_letter = -1;         /* WRITE: the letter the next key sings */
 
-static const Syl *syls(int p) { return p ? syl[p - 1] : mine[mcur]; }
-static int nsyls(int p) { return p ? nsyl[p - 1] : nmine[mcur]; }
+static const Syl *syls(int p) { return p ? syl : mine[mcur]; }
+static int nsyls(int p) { return p ? nsyl : nmine[mcur]; }
 static const char *shows(int p) { return p ? PHRASE[p - 1].show : mine_show[mcur]; }
 
 /* a token to phones: a vowel, a diphthong (vowel + glide), or a consonant (stops as closure, burst, breath) */
@@ -439,12 +440,11 @@ static APART void build_mine(void)
     mine_gen++;
 }
 
-static APART void parse(void)
+static APART void hold(int p)                   /* phrase p (0..NPHRASE-1) into syl */
 {
-    int p;
-    for (p = 0; p < NPHRASE; p++)
-        nsyl[p] = (uint8_t)parse_say(PHRASE[p].say, syl[p], NSYL);
-    build_mine();
+    if (p == sylp) return;
+    nsyl = (uint8_t)parse_say(PHRASE[p].say, syl, NSYL);
+    sylp = (uint8_t)p;
 }
 
 /* ---- the mouth -------------------------------------------------------------------------- */
@@ -622,14 +622,16 @@ static void syllable(f32 sr)                     /* the next of the phrase */
 static void blab_block(const Blk *b)
 {
     int i;
-    if (!nsyl[0]) {                              /* the first time: the phrases into phones */
-        parse();
+    if (!ready) {                                /* the first time: your words into phones */
+        ready = 1;
+        build_mine();
         M.shown = -1;
         M.tbw[0] = 60.0f; M.tbw[1] = 90.0f; M.tbw[2] = 150.0f;
     }
     M.algo = b->algo;
     i = iclamp((int)(b->k[0] * (f32)NWORD * 0.999f), 0, NWORD - 1);
     if (i != M.phrase || (!i && M.gen != mine_gen)) {   /* a new phrase (or your words written anew): from the top */
+        if (i) hold(i - 1);
         M.phrase = i;
         M.gen = mine_gen;
         M.at = 0;
@@ -1331,6 +1333,6 @@ const InstDef inst_blab = {
 };
 
 #ifdef BLAB_TOOLS                                /* (the tuning tools: how many keys a phrase takes) */
-int blab_syllables(int p) { if (!nsyl[0]) parse(); return p >= 0 && p < NPHRASE ? nsyl[p] : 0; }
+int blab_syllables(int p) { if (p < 0 || p >= NPHRASE) return 0; hold(p); return nsyl; }
 const char *blab_mine(const char **show, int *n) { *show = mine_show[mcur]; *n = nmine[mcur]; return say; }
 #endif
