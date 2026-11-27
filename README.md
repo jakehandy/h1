@@ -208,6 +208,7 @@ to a DAW. Hold both again to go back. It's never kept, so the FM-1 always starts
 | SEQ + REC | LAYERS on and off (on by default): with it on, each take keeps its own instrument, algorithm and settings |
 | hold REC | Clear the loop or the pattern. With LAYERS on: clear what was recorded on the instrument in hand. Keep holding to three seconds and the screen asks `TAP REC: CLEAR ALL`: tap REC within three seconds to clear everything, or any other button to keep it |
 | hold PLAY | With LAYERS on: the layer view. The white keys are the layers: tap one to mute it, hold one to solo it, hold one and turn SELECT for its volume, hold one and press REC to clear it. A quick tap of PLAY still stops and starts |
+| hold PLAY, press OCT+ / OCT- / EDIT | SONG: OCT+ makes a part of the layers heard now (up to 16), OCT- takes the last part off, EDIT turns the song on and off. On, the loop plays one part a pass, in order, round and round |
 | hold HOME | Silence everything |
 | hold OCT − and OCT + | USB host for a keyboard, or back to the computer (a tap of both is the middle octave) |
 | hold SAVE | Reset the algorithm in hand: its four knobs go back to how they came (everything else saves by itself) |

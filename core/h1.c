@@ -160,6 +160,9 @@ SMALL static void song_tidy(void)
             l->lfo[j] = (uint8_t)iclamp(l->lfo[j], page_param(PG_LFO, j)->min, page_param(PG_LFO, j)->max);
         }
     }
+    songp.on &= 1;                               /* SONG's parts */
+    if (songp.n > NSONG) songp.n = 0;
+    if (!songp.n) songp.on = 0;
 }
 
 SMALL int h1_state_load(const void *blob, uint32_t size)
@@ -315,9 +318,11 @@ static const struct { uint8_t *p; uint16_t n; } song_parts[] = {
     {st.seq, sizeof st.seq}, {&st.steps[0][0], sizeof st.steps}, {&st.step_part[0][0], sizeof st.step_part},
     {&st.step_vel[0][0], sizeof st.step_vel}, {&st.step_lay[0][0], sizeof st.step_lay},
     {(uint8_t *)st.layer, sizeof st.layer},
+    {(uint8_t *)&songp, sizeof songp},           /* (0.4.0: SONG's parts; a 0.3.3 record ends before them) */
 };
-#define SONG_N (4u + sizeof st.seq + 4u * sizeof st.steps + sizeof st.layer)
-typedef char song_is_h1s[SONG_N == H1_SONG_MAX ? 1 : -1];
+#define SONG_N0 (4u + sizeof st.seq + 4u * sizeof st.steps + sizeof st.layer)
+#define SONG_N (SONG_N0 + sizeof songp)
+typedef char song_is_h1s[SONG_N == H1_SONG_MAX && sizeof songp == 36u ? 1 : -1];
 
 static uint32_t song_hash(void)                  /* FNV-1a: it moves when any of it does */
 {
@@ -377,9 +382,14 @@ int h1_loop_load(const void *blob, uint32_t size)
     const uint8_t *b = (const uint8_t *)blob;
     uint32_t at = size >= 12u ? 12u + 8u * ((uint32_t)b[6] | (uint32_t)b[7] << 8) : size, i;
     int r;
-    if (size >= at + SONG_N && b[at] == (uint8_t)SONG_MAGIC && b[at + 1] == (uint8_t)(SONG_MAGIC >> 8)
+    uint32_t np = sizeof song_parts / sizeof song_parts[0];
+    songp.on = songp.n = 0;
+    songp.known = 0;
+    if (size >= at + SONG_N0 && b[at] == (uint8_t)SONG_MAGIC && b[at + 1] == (uint8_t)(SONG_MAGIC >> 8)
         && b[at + 2] == (uint8_t)(SONG_MAGIC >> 16) && b[at + 3] == (uint8_t)(SONG_MAGIC >> 24)) {
-        for (at += 4u, i = 0; i < sizeof song_parts / sizeof song_parts[0]; at += song_parts[i].n, i++)
+        if (size < at + SONG_N)
+            np--;                                /* (0.3.3's: no parts) */
+        for (at += 4u, i = 0; i < np; at += song_parts[i].n, i++)
             bytes(song_parts[i].p, b + at, song_parts[i].n);
         song_tidy();                             /* (the record's song before its notes: they name its layers) */
     }

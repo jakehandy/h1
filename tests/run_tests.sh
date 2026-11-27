@@ -82,6 +82,10 @@ ASAN_OPTIONS=detect_leaks=0 build/h1song
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/*.c tests/v040.c -o build/h1v040 -lm
 ASAN_OPTIONS=detect_leaks=0 build/h1v040
+# 0.4.0: SONG, parts made of the layers
+"${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
+    core/*.c tests/songmode.c -o build/h1songmode -lm
+ASAN_OPTIONS=detect_leaks=0 build/h1songmode
 # g_line against a distance worked out in floats at every pixel: never more than one ink level off
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/gfx.c tests/lines.c -o build/h1lines -lm
