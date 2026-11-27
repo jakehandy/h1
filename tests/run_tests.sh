@@ -78,6 +78,10 @@ ASAN_OPTIONS=detect_leaks=0 build/h1v031
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/*.c tests/song.c -o build/h1song -lm
 ASAN_OPTIONS=detect_leaks=0 build/h1song
+# 0.4.0: a take's own length; the PLAY page; LEDS SCALE
+"${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
+    core/*.c tests/v040.c -o build/h1v040 -lm
+ASAN_OPTIONS=detect_leaks=0 build/h1v040
 # g_line against a distance worked out in floats at every pixel: never more than one ink level off
 "${CC:-cc}" -std=c99 -O1 -g -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=all -w \
     core/gfx.c tests/lines.c -o build/h1lines -lm
