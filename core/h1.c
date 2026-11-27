@@ -78,6 +78,7 @@ SMALL void h1_init(uint32_t sample_rate)
 
 void h1_frame(uint32_t now_ms) { ui_frame(now_ms); }
 void h1_render(int32_t *lr, uint32_t n) { eng_render(lr, n); }
+void h1_stems(int16_t *(*get)(uint32_t off, uint32_t *run), uint32_t stride) { eng_stems(get, stride); }
 
 const void *h1_state(uint32_t *size)
 {

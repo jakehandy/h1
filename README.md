@@ -129,7 +129,7 @@ That is what the backup is for.
 - **M-VAVE FM-1 only.** Not the SMK-37.
 - **Both flash chips.** h1 saves and updates on the original Puya P25Q80 (JEDEC ID `0x856014`)
   and on the UC25HQ80 (`0xB36014`) fitted to units sold since autumn 2026.
-- USB audio out and USB MIDI in and out, or USB host for a keyboard. MIDI in over the TRS jack too. No MIDI out over TRS, and
+- USB audio out (the mix and four stems) and USB MIDI in and out, or USB host for a keyboard. MIDI in over the TRS jack too. No MIDI out over TRS, and
   no Bluetooth. See [USB audio and MIDI](#usb-audio-and-midi).
 - A screen reader ([fm1-reader](https://github.com/charlesvestal/fm1-reader)) hears the
   instrument, the algorithm, the page and each control's value as it changes. It can't describe
@@ -141,9 +141,24 @@ That is what the backup is for.
 Plug the FM-1 into a computer or a phone with a USB cable that carries data. It shows up as one
 device with two parts.
 
-**Audio.** An audio input, like a USB microphone. Pick the FM-1 as the input in a DAW, a recording
-app or the system's sound settings, and record. It carries the whole mix at the MASTER volume, the
-same as the speaker. Nothing plays back through it: the FM-1 isn't a sound card for the computer.
+**Audio.** An audio input, like a USB microphone, with ten channels at 44.1 kHz. Pick the FM-1 as the
+input in a DAW, a recording app or the system's sound settings, and record. Nothing plays back through
+it: the FM-1 isn't a sound card for the computer.
+
+| Channels | What's on them |
+|---|---|
+| 1-2 | The whole mix at the MASTER volume, the same as the speaker |
+| 3-4 | Stem 1: the instrument of the first layer in the layer view |
+| 5-6 | Stem 2: the instrument of the next layer on another instrument |
+| 7-8 | Stem 3: the next one again |
+| 9-10 | Stem 4: everything else |
+
+Each stem is an instrument at its own volume and MASTER, dry: ECHO, SPACE, TONE, the metronome and
+the cue voice are only on 1-2, because they run over the whole mix. With fewer than three instruments
+on the loop's layers, the instrument in hand takes the next free stem, so without LAYERS what you
+play is on 3-4. Two layers on the same instrument share its stem. A recording app that wants stereo
+takes channels 1 and 2. To split a ten-channel file into five stereo ones, run
+`python3 tools/h1_stems.py REC.wav --split OUTDIR`.
 
 **MIDI in,** over USB or the TRS jack, on any channel (or the one CHAN on the MIDI page picks):
 

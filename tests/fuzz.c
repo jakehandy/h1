@@ -75,11 +75,31 @@ static void midi_out_check(uint8_t status, uint8_t d1, uint8_t d2)
 static uint32_t now_ms;
 static uint32_t keys_down, btns_down;
 
+/* the stems (h1_stems): a ring of 10-channel frames as fm1-base's USB audio input keeps it, wrapping at an odd
+ * place; now and then nobody records */
+#define SRING 301u
+static int16_t sring[SRING][10];
+static uint32_t sring_w, sring_off;
+static int16_t *stem_frame(uint32_t off, uint32_t *run)
+{
+    uint32_t s;
+    if (sring_off) {
+        *run = 0;
+        return 0;
+    }
+    s = (sring_w + off) % SRING;
+    *run = SRING - s;
+    return &sring[s][2];
+}
+
 static void sound(uint32_t n)
 {
     static int32_t lr[2 * 1024];
     uint32_t i;
     h1_render(lr, n);
+    sring_w = (sring_w + n) % SRING;
+    if ((rnd() & 63u) == 0)
+        sring_off ^= 1u;
     if (h1_fuzz_nan)
         die("the sound is not a number", (int)h1_fuzz_nan, h1_instrument(), h1_algorithm(), 0);
     for (i = 0; i < 2 * n; i++)
@@ -266,6 +286,7 @@ static void fresh(uint32_t t0)
     case 1: h1_two_cores(no_two, wait_two); break;
     default: h1_two_cores(0, 0); break;
     }
+    h1_stems(rnd() & 1u ? stem_frame : 0, 10);
     h1_while_drawing(pipe_poll);
     h1_midi_out(midi_out_check);
     have_want = 0;
