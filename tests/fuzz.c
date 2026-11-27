@@ -156,7 +156,7 @@ static void frame(uint32_t ms, int with_sound)
         have_want = 0;
     }
     if (h1_instrument() < 0 || h1_instrument() >= h1_instrument_count() || h1_algorithm() < 0 || h1_algorithm() >= nalgos(h1_instrument()) ||
-        h1_page() < 0 || h1_page() > 9)
+        h1_page() < 0 || h1_page() > 10)
         die("out of range", h1_instrument(), h1_algorithm(), h1_page(), 0);
     (void)h1_key_leds();
     (void)h1_button_leds();
