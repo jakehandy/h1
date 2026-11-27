@@ -44,7 +44,10 @@ static const char *const O_CHAN[] = {"ALL", "1", "2", "3", "4", "5", "6", "7", "
 static const char *const O_BEND[] = {"OFF", "2", "12"};
 static const char *const O_ONOFF_R[] = {"ON", "OFF"};
 static const char *const O_SCREEN[] = {"AUTO", "FAST", "SAFE"};
-static const char *const O_LEDS[] = {"PLAYED", "SEQ"};
+static const char *const O_LEDS[] = {"PLAYED", "SEQ", "SCALE"};
+static const char *const O_FXALL[] = {"EACH", "ALL"};
+static const char *const O_MAXVOL[] = {"100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%"};
+static const char *const O_KEYVEL[] = {"127", "112", "96", "80", "64", "48", "32"};
 
 /* in the order of the buttons that open them, reading the panel's two rows left to right */
 const PageDef pages[NPAGE] = {
@@ -67,7 +70,10 @@ const PageDef pages[NPAGE] = {
     {"MIDI", {{"CHAN", PK_ENUM, 16, 0, 0, O_CHAN}, {"BEND", PK_ENUM, 2, 0, 0, O_BEND},
               {"WHEEL", PK_ENUM, 1, 0, 0, O_ONOFF}, {"PEDAL", PK_ENUM, 1, 0, 0, O_ONOFF}}},
     {"SETUP", {{"ANIM", PK_ENUM, 1, 0, 0, O_ONOFF_R}, {"EGGS", PK_ENUM, 1, 0, 0, O_ONOFF_R},
-               {"SCREEN", PK_ENUM, 2, 0, 0, O_SCREEN}, {"LEDS", PK_ENUM, 1, 0, 0, O_LEDS}}},
+               {"SCREEN", PK_ENUM, 2, 0, 0, O_SCREEN}, {"LEDS", PK_ENUM, 2, 0, 0, O_LEDS}}},
+    /* 0.4.0: FX for every instrument at once, a cap on the volume, the panel keys' velocity, a transpose */
+    {"PLAY", {{"FX", PK_ENUM, 1, 0, 0, O_FXALL}, {"MAX VOL", PK_ENUM, 8, 0, 0, O_MAXVOL},
+              {"KEY VEL", PK_ENUM, 6, 0, 0, O_KEYVEL}, {"TRANSP", PK_INT, 24, 0, -TRANS_MID, 0}}},
 };
 static const ParamDef P_GRID = {"GRID", PK_ENUM, 2, 0, 0, O_GRID};
 
@@ -94,6 +100,7 @@ uint8_t *page_value(int pg, int i)
     case PG_SEQ: return &st.seq[i == 3 && st.seq[0] == SEQ_STEP ? 4 : i];
     case PG_MIDI: return &opt[i];
     case PG_SETUP: return &opt[4 + i];
+    case PG_PLAY: return &opt[8 + i];
     default: return &KNOBS_NOW(st.inst)[i];
     }
 }
@@ -471,13 +478,13 @@ SMALL void h1_key(int key, int down)
     if ((down || !key_down[key]) && layview_key(key, down))
         return;
     if (down) {
-        int note = scale_snap(53 + key + 12 * st.octave);
+        int note = scale_snap(53 + key + 12 * st.octave) + opt[OPT_TRANS] - TRANS_MID;
         if (key_down[key])
             return;
         note = iclamp(note, 0, 127);
         key_down[key] = 1;
         key_note[key] = (uint8_t)note;
-        eng_post(EV_NOTE_ON, note);
+        eng_post_note(1, note, KEYVEL[opt[OPT_KEYVEL]], 0);   /* (PLAY's KEY VEL: 127 unless set) */
     } else if (key_down[key]) {
         key_down[key] = 0;
         eng_post(EV_NOTE_OFF, key_note[key]);
@@ -885,6 +892,14 @@ static void set_knob(int i, int v)
         eng_mout3(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
 }
 
+static APART void fx_all(void)
+{
+    int k, j;
+    for (k = 0; k < NINST; k++)
+        for (j = 0; j < 4; j++)
+            st.ip[k].fx[j] = st.ip[st.inst].fx[j];
+}
+
 static APART void set_param(int i, int v)
 {
     const ParamDef *p = page_param(page, i);
@@ -902,8 +917,12 @@ static APART void set_param(int i, int v)
     *q = (uint8_t)v;
     if (page == PG_KEYS && i == 3 && v != 1)
         eng_post(EV_UNLATCH, 0);
-    if (page == PG_MIDI || page == PG_SETUP) {
+    if (page == PG_FX && opt[OPT_FX])            /* FX ALL: every instrument's FX the same, so a change of */
+        fx_all();                                /* instrument (or a layer of another) keeps the sound's FX */
+    if (page == PG_MIDI || page == PG_SETUP || page == PG_PLAY) {
         opt_pack();
+        if (page == PG_PLAY && i == 0 && v)
+            fx_all();
         if (page == PG_MIDI && i == OPT_PEDAL && !v)
             eng_post(EV_SUSTAIN, 0);             /* (a pedal down when it was switched off lets go) */
         if (page == PG_MIDI && i == OPT_BEND && !v)
@@ -1602,8 +1621,17 @@ uint32_t h1_key_leds(void)
      * sounds, as they do while playing alone (#49). SETUP's LEDS SEQ: the sequencer has them while it runs. */
     if (layview_on())
         return layview_leds();
-    if ((page == PG_SEQ || seq.write || opt[OPT_LEDS]) && eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
+    if ((page == PG_SEQ || seq.write || opt[OPT_LEDS] == 1) && eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
         return m;
+    if (opt[OPT_LEDS] == 2) {                    /* LEDS SCALE (0.4.0): the keys in the scale lit, a played one dark */
+        int k, n;
+        for (m = 0, k = 0; k < H1_NKEYS; k++) {
+            n = 53 + k + 12 * st.octave;
+            if (st.keys[1] ? scale_snap(n) == n : n % 12 == st.keys[0] % 12)
+                m |= 1u << k;                    /* (CHROM: every key is in it, so the roots alone) */
+        }
+        return m ^ eng_sounding_lo();
+    }
     return eng_sounding_lo();
 }
 

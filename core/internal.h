@@ -240,12 +240,15 @@ extern const InstDef *const insts[NINST];
 static inline int part_ok(uint32_t p) { return PART_SOME(p) && PART_ALGO(p) < NALGOS(PART_INST(p)); }
 
 /* ---- settings pages ------------------------------------------------------------------- */
-enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, PG_MIDI, PG_SETUP, NPAGE };
+enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, PG_MIDI, PG_SETUP, PG_PLAY, NPAGE };
 #define PG_BUTTONS PG_MIDI       /* the pages from here on have no button: SELECT goes on to them from SEQ */
 
 /* The MIDI and SETUP pages' settings (0.3.1): each 0 as it was before them. Saved packed in H1State.rsv, so
  * the state stays version 9 and a 0.3.0 reads it (and leaves them off). */
-enum { OPT_CHAN, OPT_BEND, OPT_WHEEL, OPT_PEDAL, OPT_ANIM, OPT_EGGS, OPT_SCREEN, OPT_LEDS, NOPT };
+enum { OPT_CHAN, OPT_BEND, OPT_WHEEL, OPT_PEDAL, OPT_ANIM, OPT_EGGS, OPT_SCREEN, OPT_LEDS,
+       OPT_FX, OPT_MAXVOL, OPT_KEYVEL, OPT_TRANS, NOPT };   /* (0.4.0: the PLAY page, from OPT_FX; LEDS 2 = SCALE) */
+#define TRANS_MID 12             /* OPT_TRANS: semitones + 12 (12: none) */
+extern const uint8_t KEYVEL[];   /* OPT_KEYVEL: the velocity the panel's keys play at */
 extern uint8_t opt[NOPT];
 void opt_unpack(void);
 void opt_pack(void);

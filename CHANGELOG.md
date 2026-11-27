@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0
+
+Identity `FM-1_481000400`. What the GitHub issues and Reddit asked for most. Saved states and loops from 0.3.x
+load as they were; every new setting starts as before.
+
+**Loops**
+- A take can be shorter or longer than the loop (#69). With LAYERS on and a loop recorded, BARS on the SEQ page
+  is the next take's length. Longer than the loop: the loop repeats itself out to it first, so a 2-bar drum
+  take is under the 8-bar chords you record next. Shorter: the take closes itself once it is that long and
+  repeats over the whole loop, so a 2-bar drum pattern goes under a 16-bar melody without playing it eight
+  times.
+
+**A new PLAY page** (after SETUP, with SELECT)
+- **FX**: EACH (as before) or ALL. ALL gives every instrument the FX of the one in hand, and a change on the FX
+  page goes to all of them, so a change of instrument (or a layer on another) no longer changes the echo or the
+  space.
+- **MAX VOL**: a cap on MASTER, from 100% down to 20%. MASTER all the way up then gives what it gave at that
+  place, so the FM-1 can be handed to someone without it getting loud.
+- **KEY VEL**: the velocity the FM-1's own keys play at: 127 as before, or down to 32, so they sit with an
+  external keyboard's softer notes.
+- **TRANSP**: the panel's keys up or down to 12 semitones. Scale and root stay on the keys you play, so a shape
+  you know (C minor, say) plays in another key.
+
+**Lights**
+- SETUP's LEDS has a third setting, **SCALE**: the keys in the KEYS page's scale are lit (the roots, on
+  CHROM), a played one goes dark, and the sequencer's steps stay off the keys.
+
 ## 0.3.3
 
 Identity `FM-1_481000303`. USB audio stems, and fixes from the GitHub issues since 0.3.2.

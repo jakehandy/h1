@@ -40,10 +40,12 @@ static void defaults(void)
 }
 
 uint8_t opt[NOPT];
-static const uint8_t OPT_MAX[NOPT] = {16, 2, 1, 1, 1, 1, 2, 1};
+static const uint8_t OPT_MAX[NOPT] = {16, 2, 1, 1, 1, 1, 2, 2, 1, 8, 6, 24};
+const uint8_t KEYVEL[7] = {127, 112, 96, 80, 64, 48, 32};
 
 /* rsv[0]: the channel (0 all, 1..16), PEDAL << 5, WHEEL << 6, LEDS << 7. rsv[1]: BEND, ANIM << 2, EGGS << 3,
- * SCREEN << 4. */
+ * SCREEN << 4, FX << 6, LEDS' SCALE << 7 (0.4.0). rsv[2]: MAXVOL, KEYVEL << 4. rsv[3]: TRANS + 4 (0.4.0; never
+ * 0, so an older state's 0 reads as no transpose). */
 static uint32_t song_saved, song_given;       /* the song's hash as saved, and as last given (h1_song) */
 static uint32_t song_hash(void);
 
@@ -58,17 +60,25 @@ SMALL void opt_unpack(void)
     opt[OPT_ANIM] = st.rsv[1] >> 2 & 1u;
     opt[OPT_EGGS] = st.rsv[1] >> 3 & 1u;
     opt[OPT_SCREEN] = st.rsv[1] >> 4 & 3u;
+    opt[OPT_FX] = st.rsv[1] >> 6 & 1u;
+    if (st.rsv[1] >> 7)
+        opt[OPT_LEDS] = 2;
+    opt[OPT_MAXVOL] = st.rsv[2] & 15u;
+    opt[OPT_KEYVEL] = st.rsv[2] >> 4 & 15u;
+    opt[OPT_TRANS] = st.rsv[3] ? (uint8_t)((st.rsv[3] & 31u) - 4u) : TRANS_MID;
     for (i = 0; i < NOPT; i++)
         if (opt[i] > OPT_MAX[i])
-            opt[i] = 0;
+            opt[i] = i == OPT_TRANS ? TRANS_MID : 0;
     opt_pack();
 }
 
 SMALL void opt_pack(void)
 {
-    st.rsv[0] = (uint8_t)(opt[OPT_CHAN] | opt[OPT_PEDAL] << 5 | opt[OPT_WHEEL] << 6 | opt[OPT_LEDS] << 7);
-    st.rsv[1] = (uint8_t)(opt[OPT_BEND] | opt[OPT_ANIM] << 2 | opt[OPT_EGGS] << 3 | opt[OPT_SCREEN] << 4);
-    st.rsv[2] = st.rsv[3] = 0;
+    st.rsv[0] = (uint8_t)(opt[OPT_CHAN] | opt[OPT_PEDAL] << 5 | opt[OPT_WHEEL] << 6 | (opt[OPT_LEDS] == 1) << 7);
+    st.rsv[1] = (uint8_t)(opt[OPT_BEND] | opt[OPT_ANIM] << 2 | opt[OPT_EGGS] << 3 | opt[OPT_SCREEN] << 4
+                          | opt[OPT_FX] << 6 | (opt[OPT_LEDS] == 2) << 7);
+    st.rsv[2] = (uint8_t)(opt[OPT_MAXVOL] | opt[OPT_KEYVEL] << 4);
+    st.rsv[3] = (uint8_t)(opt[OPT_TRANS] + 4u);  /* (4..28: never 0, so 0 is an older state's "none") */
 }
 
 SMALL void h1_init(uint32_t sample_rate)
@@ -276,6 +286,7 @@ int h1_silent(void) { return eng_silent(); }
 void h1_load(int pct) { eng_load(pct); }
 int h1_screen(void) { return opt[OPT_SCREEN]; }
 int h1_midi_channel(void) { return opt[OPT_CHAN]; }
+int h1_volume_cap(void) { return 1000 - 100 * opt[OPT_MAXVOL]; }
 
 void h1_ink(int inst, uint8_t rgb[3])
 {

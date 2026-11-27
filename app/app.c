@@ -530,7 +530,9 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     /* master_q12 is already fm1-base's square of the knob's position (APP_GAIN), so a held position is squared
      * here first: the held volume is then the one the knob gave a moment ago. (It was not, and holding made
      * everything louder: #38.) */
-    float m = held < 0 ? (float)master_q12 * (1.0f / 4096.0f) : p * p;
+    float c = (float)h1_volume_cap() * 0.001f;              /* PLAY's MAX VOL (0.4.0): MASTER all the way up gives
+                                                             * what it gives at that place, and less below */
+    float m = (held < 0 ? (float)master_q12 * (1.0f / 4096.0f) : p * p) * c * c;
     float gain = m * m;                                     /* and the square of that: MASTER's curve on the FM-1 */
     uint32_t i, t0 = plat_ticks24(), us;
 #if PLAT_USB_CH >= 8

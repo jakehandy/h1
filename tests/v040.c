@@ -2,7 +2,8 @@
  *
  *   take length  with LAYERS on and a loop there, BARS is the next take's length (#69): longer, and the loop
  *                is repeated out to it; shorter, and the take closes itself once that long and is repeated
- *                out over the loop */
+ *                out over the loop
+ *   PLAY page    FX ALL, MAX VOL, KEY VEL, TRANSP, saved in the state's spare bytes; LEDS SCALE */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -106,6 +107,77 @@ int main(void)
     note(16, 150);
     go(300);
     CHECK(ons(3, 0, 0) == 8, "a note after it is not recorded");
+
+    /* ---- the PLAY page: FX ALL, MAX VOL, KEY VEL, TRANSP; LEDS SCALE ---- */
+    tap(H1_BTN_PLAY);
+    go(200);
+    tap(H1_BTN_HOME);
+    tap(H1_BTN_SEQ);
+    h1_encoder(H1_ENC_SELECT, 1);
+    h1_encoder(H1_ENC_SELECT, 1);
+    h1_encoder(H1_ENC_SELECT, 1);
+    CHECK(h1_page() == PG_PLAY, "SELECT from SEQ, three on: PLAY");
+    CHECK(!opt[OPT_FX] && !opt[OPT_MAXVOL] && !opt[OPT_KEYVEL] && opt[OPT_TRANS] == TRANS_MID,
+          "every PLAY setting as before until set");
+    st.ip[h1_instrument()].fx[0] = 37;
+    h1_encoder(H1_ENC_K1, 1);
+    CHECK(opt[OPT_FX] == 1, "FX ALL");
+    CHECK(st.ip[COZY].fx[0] == 37 && st.ip[BONK].fx[0] == 37, "every instrument takes the FX in hand");
+    { int k; for (k = 0; k < 5; k++) { h1_encoder(H1_ENC_K2, 1); go(150); } }
+    CHECK(h1_volume_cap() == 500, "MAX VOL 50%");
+    {
+        int k;
+        for (k = 0; k < 4; k++) { h1_encoder(H1_ENC_K3, 1); go(150); }
+        for (k = 0; k < 3; k++) { h1_encoder(H1_ENC_K4, 1); go(150); }
+    }
+    CHECK(opt[OPT_TRANS] == TRANS_MID + 3, "TRANSP +3");
+    {
+        uint8_t keep[4];
+        memcpy(keep, st.rsv, 4);
+        opt[OPT_FX] = opt[OPT_MAXVOL] = opt[OPT_KEYVEL] = 0;
+        opt[OPT_TRANS] = TRANS_MID;
+        opt_unpack();
+        CHECK(opt[OPT_FX] == 1 && opt[OPT_MAXVOL] == 5 && opt[OPT_KEYVEL] == 4 && opt[OPT_TRANS] == TRANS_MID + 3,
+              "all four saved in the state's spare bytes");
+        st.rsv[2] = st.rsv[3] = 0;               /* a 0.3.x state */
+        opt_unpack();
+        CHECK(!opt[OPT_MAXVOL] && !opt[OPT_KEYVEL] && opt[OPT_TRANS] == TRANS_MID, "an older state: as before");
+        memcpy(st.rsv, keep, 4);
+        opt_unpack();
+    }
+    tap(H1_BTN_HOME);
+    go(200);
+    tap(H1_BTN_FX);
+    h1_encoder(H1_ENC_K3, 3);
+    CHECK(st.ip[COZY].fx[2] == st.ip[KOI].fx[2] && st.ip[KOI].fx[2] == st.ip[h1_instrument()].fx[2],
+          "FX ALL: a change on the FX page goes to every instrument");
+    tap(H1_BTN_HOME);
+    go(200);
+    {
+        int v, found = 0;
+        st.octave = 0;
+        st.keys[1] = 0;
+        h1_key(0, 1);
+        go(100);
+        for (v = 0; v < NVOICE; v++)
+            if (voices[v].stage && voices[v].gate && voices[v].note == 53 + 3) {
+                found = 1;
+                CHECK(voices[v].vel == 64, "KEY VEL 64: the panel's key plays at 64");
+            }
+        CHECK(found, "TRANSP +3: the first key plays F + 3");
+        CHECK(h1_key_leds() & 1u, "its light is still the key played");
+        h1_key(0, 0);
+        go(300);
+    }
+    opt[OPT_LEDS] = 2;
+    st.keys[0] = 0;
+    st.keys[1] = 1;                              /* C MAJOR */
+    {
+        uint32_t m = h1_key_leds();
+        CHECK(!(m & 1u << 1) && (m & 1u << 0) && (m & 1u << 2), "LEDS SCALE: F lit, F# dark, G lit");
+    }
+    opt[OPT_LEDS] = 0;
+    st.keys[1] = 0;
 
     printf("v040: %d checks, %d failed\n", checks, fails);
     return fails != 0;

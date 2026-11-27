@@ -185,7 +185,7 @@ int main(void)
         copy[offsetof(H1State, rsv) + 1] = 0xFF;
         h1_state_load(copy, size);
         for (i = 0; i < NOPT; i++)
-            CHECK(opt[i] <= (i == OPT_CHAN ? 16 : 2), "a damaged one: every one in its range");
+            CHECK(opt[i] <= (i == OPT_CHAN || i >= OPT_MAXVOL ? 24 : 2), "a damaged one: every one in its range");
         CHECK(opt[OPT_CHAN] == 0 && opt[OPT_BEND] == 0, "(out of range: off)");
         memset(opt, 0, sizeof opt);
         opt_pack();
@@ -219,7 +219,9 @@ int main(void)
     h1_encoder(H1_ENC_K1, -1);
     CHECK(opt[OPT_ANIM] == 0, "and back");
     h1_encoder(H1_ENC_SELECT, 1);
-    CHECK(h1_page() == PG_FX, "past SETUP: round to FX");
+    CHECK(h1_page() == PG_PLAY, "past SETUP: PLAY (0.4.0)");
+    h1_encoder(H1_ENC_SELECT, 1);
+    CHECK(h1_page() == PG_FX, "past PLAY: round to FX");
     tap(H1_BTN_HOME);
     go(300);
 

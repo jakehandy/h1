@@ -2394,7 +2394,7 @@ void eng_snapshot(Vis *vis)
 uint32_t eng_sounding_lo(void)
 {
     uint32_t m = 0;
-    int i, base = 53 + 12 * st.octave;
+    int i, base = 53 + 12 * st.octave + opt[OPT_TRANS] - TRANS_MID;   /* (TRANSPOSE: still on the key played) */
     for (i = 0; i < NVOICE; i++)
         if (voices[i].stage && voices[i].gate) {
             int k = (int)voices[i].note - base;
