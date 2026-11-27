@@ -113,6 +113,17 @@ typedef struct Layer {
 #define LAY_MUTE 1u
 #define LAY_SOLO 2u
 
+/* SONG (0.4.0): parts made of the layers. Each part is the layers it lets be heard; with the song on, the
+ * loop plays one part a pass and goes on to the next as it comes round, the last back to the first. A layer
+ * that was not there when any part was made (known) plays through all of them. Saved with the loop. */
+#define NSONG 16
+typedef struct SongParts {
+    uint8_t on, n;
+    uint16_t known;              /* the layers there were when parts were made */
+    uint16_t mask[NSONG];        /* bit l - 1: layer l is heard in that part */
+} SongParts;
+extern SongParts songp;
+
 typedef struct H1Old {           /* what versions 4 to 8 saved: only its offsets are used, nothing is read through it */
     uint32_t magic;
     uint8_t version, inst;
@@ -266,12 +277,15 @@ void blab_type(int key);                         /* a key 0..26 (26: a space), -
 static inline int part_ok(uint32_t p) { return PART_SOME(p) && PART_ALGO(p) < NALGOS(PART_INST(p)); }
 
 /* ---- settings pages ------------------------------------------------------------------- */
-enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, PG_MIDI, PG_SETUP, NPAGE };
+enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, PG_MIDI, PG_SETUP, PG_PLAY, NPAGE };
 #define PG_BUTTONS PG_MIDI       /* the pages from here on have no button: SELECT goes on to them from SEQ */
 
 /* The MIDI and SETUP pages' settings (0.3.1): each 0 as it was before them. Saved packed in H1State.rsv:
  * 0.3.1 kept the state at version 9 so a 0.3.0 could read it; version 10 (BLAB) carries them over. */
-enum { OPT_CHAN, OPT_BEND, OPT_WHEEL, OPT_PEDAL, OPT_ANIM, OPT_EGGS, OPT_SCREEN, OPT_LEDS, NOPT };
+enum { OPT_CHAN, OPT_BEND, OPT_WHEEL, OPT_PEDAL, OPT_ANIM, OPT_EGGS, OPT_SCREEN, OPT_LEDS,
+       OPT_FX, OPT_MAXVOL, OPT_KEYVEL, OPT_TRANS, NOPT };   /* (0.4.0: the PLAY page, from OPT_FX; LEDS 2 = SCALE) */
+#define TRANS_MID 12             /* OPT_TRANS: semitones + 12 (12: none) */
+extern const uint8_t KEYVEL[];   /* OPT_KEYVEL: the velocity the panel's keys play at */
 extern uint8_t opt[NOPT];
 void opt_unpack(void);
 void opt_pack(void);
@@ -351,6 +365,7 @@ extern void (*eng_midi_fn)(uint8_t status, uint8_t d1, uint8_t d2);
 /* the loop, saved apart from the state (h1_loop): main loop */
 const uint8_t *eng_loop_blob(uint32_t *size);    /* the loop as saved, in place (h1_loop) */
 int eng_loop_load(const uint8_t *b, uint32_t n);
+int eng_song_part(void);                          /* the part playing now, 0.. (SONG) */
 uint32_t eng_loop_gen(void);                     /* changes whenever what is recorded in the loop changes */
 int eng_loop_taking(void);                       /* 1: a take is going into the loop (it is changing) */
 int eng_loop_quiet(void);                        /* 1: nothing is recording or playing (the loop may be written) */

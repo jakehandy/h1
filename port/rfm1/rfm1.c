@@ -243,6 +243,7 @@ static void input(void)
     h1_master((int)(m * 1000 / 1023));   /* the picture shows it while it turns */
     if (h1_global_volume() >= 0)         /* (held: the knob was the instrument's and has not come back) */
         m = h1_global_volume() * 1023 / 1000;
+    m = m * h1_volume_cap() / 1000;      /* PLAY's MAX VOL (0.4.0) */
     gain_q12 = (uint32_t)(m * m) >> 8;   /* the square law fm1-base gives MASTER: m * m >> 12 on 0..4096 */
 }
 

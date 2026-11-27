@@ -46,7 +46,10 @@ static const char *const O_CHAN[] = {"ALL", "1", "2", "3", "4", "5", "6", "7", "
 static const char *const O_BEND[] = {"OFF", "2", "12"};
 static const char *const O_ONOFF_R[] = {"ON", "OFF"};
 static const char *const O_SCREEN[] = {"AUTO", "FAST", "SAFE"};
-static const char *const O_LEDS[] = {"PLAYED", "SEQ"};
+static const char *const O_LEDS[] = {"PLAYED", "SEQ", "SCALE"};
+static const char *const O_FXALL[] = {"EACH", "ALL"};
+static const char *const O_MAXVOL[] = {"100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%"};
+static const char *const O_KEYVEL[] = {"127", "112", "96", "80", "64", "48", "32"};
 
 /* in the order of the buttons that open them, reading the panel's two rows left to right */
 const PageDef pages[NPAGE] = {
@@ -69,7 +72,10 @@ const PageDef pages[NPAGE] = {
     {"MIDI", {{"CHAN", PK_ENUM, 16, 0, 0, O_CHAN}, {"BEND", PK_ENUM, 2, 0, 0, O_BEND},
               {"WHEEL", PK_ENUM, 1, 0, 0, O_ONOFF}, {"PEDAL", PK_ENUM, 1, 0, 0, O_ONOFF}}},
     {"SETUP", {{"ANIM", PK_ENUM, 1, 0, 0, O_ONOFF_R}, {"EGGS", PK_ENUM, 1, 0, 0, O_ONOFF_R},
-               {"SCREEN", PK_ENUM, 2, 0, 0, O_SCREEN}, {"LEDS", PK_ENUM, 1, 0, 0, O_LEDS}}},
+               {"SCREEN", PK_ENUM, 2, 0, 0, O_SCREEN}, {"LEDS", PK_ENUM, 2, 0, 0, O_LEDS}}},
+    /* 0.4.0: FX for every instrument at once, a cap on the volume, the panel keys' velocity, a transpose */
+    {"PLAY", {{"FX", PK_ENUM, 1, 0, 0, O_FXALL}, {"MAX VOL", PK_ENUM, 8, 0, 0, O_MAXVOL},
+              {"KEY VEL", PK_ENUM, 6, 0, 0, O_KEYVEL}, {"TRANSP", PK_INT, 24, 0, -TRANS_MID, 0}}},
 };
 static const ParamDef P_GRID = {"GRID", PK_ENUM, 2, 0, 0, O_GRID};
 
@@ -96,6 +102,7 @@ uint8_t *page_value(int pg, int i)
     case PG_SEQ: return &st.seq[i == 3 && st.seq[0] == SEQ_STEP ? 4 : i];
     case PG_MIDI: return &opt[i];
     case PG_SETUP: return &opt[4 + i];
+    case PG_PLAY: return &opt[8 + i];
     default: return &KNOBS_NOW(st.inst)[i];
     }
 }
@@ -347,6 +354,8 @@ static uint32_t lay_heard(void)                  /* bit k: layer k + 1 is there 
             if (st.layer[i].rsv[1] & LAY_SOLO) solo |= 1u << i;
             if (st.layer[i].rsv[1] & LAY_MUTE) mute |= 1u << i;
         }
+    if (songp.on && songp.n && !solo)            /* SONG: the part playing says (as the engine has it) */
+        mute = songp.known & ~songp.mask[eng_song_part()];
     return solo ? solo : have & ~mute;
 }
 
@@ -377,9 +386,56 @@ static APART void lv_key_up(int k)
     mark_dirty();
 }
 
+/* SONG (0.4.0), with PLAY held and no layer key: OCT+ makes a part of the layers heard now, OCT- takes the
+ * last part off, EDIT turns the song on and off */
+static APART int song_button(int btn)
+{
+    uint32_t have = 0;
+    int i;
+    if (btn != H1_BTN_OCTUP && btn != H1_BTN_OCTDN && btn != H1_BTN_EDIT)
+        return 0;
+    lv_used = 1;
+    btn_fired[btn] = 3;
+    for (i = 0; i < NLAYER; i++)
+        if (st.layer[i].part)
+            have |= 1u << i;
+    if (btn == H1_BTN_OCTUP) {
+        if (!have)
+            toast("NO LAYERS", 0, 0, 0, -1);
+        else if (songp.n >= NSONG)
+            toast("SONG FULL", 0, 0, 0, -1);
+        else {
+            songp.mask[songp.n] = (uint16_t)lay_heard();
+            songp.known |= (uint16_t)have;
+            songp.n++;
+            toast("PART ", songp.n, 1, " ADDED", -1);
+        }
+    } else if (btn == H1_BTN_OCTDN) {
+        if (!songp.n)
+            toast("NO PARTS", 0, 0, 0, -1);
+        else {
+            songp.n--;
+            toast("PART ", songp.n + 1, 1, " REMOVED", -1);
+            if (!songp.n)
+                songp.on = 0;
+        }
+    } else if (!songp.n)
+        toast("NO PARTS: OCT+ ADDS", 0, 0, 0, -1);
+    else {
+        songp.on ^= 1;
+        if (songp.on)
+            toast("SONG ON: ", songp.n, 1, " PARTS", -1);
+        else
+            toast("SONG OFF", 0, 0, 0, -1);
+    }
+    return 1;
+}
+
 /* a button pressed while PLAY is held: REC on a layer key clears that layer */
 static APART int layview_button(int btn)
 {
+    if (lv_play && lv_key < 0)
+        return song_button(btn);
     if (!lv_play || btn != H1_BTN_REC || lv_key < 0)
         return 0;
     lv_used = lv_key_fired = 1;
@@ -461,11 +517,18 @@ static APART void draw_layview(void)
 {
     uint32_t heard = lay_heard();
     int i;
-    char b[4];
+    char b[4], b2[16];
     g_mode(G_PAINT);
     g_rect(4.0f, 30.0f, 232.0f, 178.0f, 0.0f);
     g_mode(G_MAX);
-    g_text(120.0f, 34.0f, "LAYERS", 12.0f, 1.6f, 1.0f, 1);
+    if (songp.n) {                               /* SONG: "SONG 2/4" playing, "SONG 4 PARTS" off */
+        char *d = put_s(b2, "SONG ");
+        if (songp.on)
+            d = put_s(put_i(d, eng_song_part() + 1), "/");
+        put_s(put_i(d, songp.n), songp.on ? "" : " PARTS");
+        g_text(120.0f, 34.0f, b2, 12.0f, 1.6f, 1.0f, 1);
+    } else
+        g_text(120.0f, 34.0f, "LAYERS", 12.0f, 1.6f, 1.0f, 1);
     for (i = 0; i < NLAYER; i++) {
         const Layer *l = &st.layer[i];
         f32 x = 10.0f + (f32)(i & 3) * 56.0f, y = 54.0f + (f32)(i >> 2) * 37.0f, a;
@@ -492,7 +555,7 @@ SMALL void h1_key(int key, int down)
     if ((down || !key_down[key]) && layview_key(key, down))
         return;
     if (down) {
-        int note = scale_snap(53 + key + 12 * st.octave);
+        int note = scale_snap(53 + key + 12 * st.octave) + opt[OPT_TRANS] - TRANS_MID;
         if (key_down[key])
             return;
         if (writing()) {                         /* WRITE: a letter, sung at its key */
@@ -504,7 +567,7 @@ SMALL void h1_key(int key, int down)
         note = iclamp(note, 0, 127);
         key_down[key] = 1;
         key_note[key] = (uint8_t)note;
-        eng_post(EV_NOTE_ON, note);
+        eng_post_note(1, note, KEYVEL[opt[OPT_KEYVEL]], 0);   /* (PLAY's KEY VEL: 127 unless set) */
     } else if (key_down[key]) {
         key_down[key] = 0;
         eng_post(EV_NOTE_OFF, key_note[key]);
@@ -918,6 +981,14 @@ static void set_knob(int i, int v)
         eng_mout3(0xB0u, (uint8_t)(20 + i), (uint8_t)((*k * 127 + 50) / 100));
 }
 
+static APART void fx_all(void)
+{
+    int k, j;
+    for (k = 0; k < NINST; k++)
+        for (j = 0; j < 4; j++)
+            st.ip[k].fx[j] = st.ip[st.inst].fx[j];
+}
+
 static APART void set_param(int i, int v)
 {
     const ParamDef *p = page_param(page, i);
@@ -935,8 +1006,12 @@ static APART void set_param(int i, int v)
     *q = (uint8_t)v;
     if (page == PG_KEYS && i == 3 && v != 1)
         eng_post(EV_UNLATCH, 0);
-    if (page == PG_MIDI || page == PG_SETUP) {
+    if (page == PG_FX && opt[OPT_FX])            /* FX ALL: every instrument's FX the same, so a change of */
+        fx_all();                                /* instrument (or a layer of another) keeps the sound's FX */
+    if (page == PG_MIDI || page == PG_SETUP || page == PG_PLAY) {
         opt_pack();
+        if (page == PG_PLAY && i == 0 && v)
+            fx_all();
         if (page == PG_MIDI && i == OPT_PEDAL && !v)
             eng_post(EV_SUSTAIN, 0);             /* (a pedal down when it was switched off lets go) */
         if (page == PG_MIDI && i == OPT_BEND && !v)
@@ -1637,8 +1712,17 @@ uint32_t h1_key_leds(void)
      * sounds, as they do while playing alone (#49). SETUP's LEDS SEQ: the sequencer has them while it runs. */
     if (layview_on())
         return layview_leds();
-    if ((page == PG_SEQ || seq.write || opt[OPT_LEDS]) && eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
+    if ((page == PG_SEQ || seq.write || opt[OPT_LEDS] == 1) && eng_seq_leds(&m, page == PG_SEQ, fractf(tsec * 2.2f) < 0.6f))
         return m;
+    if (opt[OPT_LEDS] == 2) {                    /* LEDS SCALE (0.4.0): the keys in the scale lit, a played one dark */
+        int k, n;
+        for (m = 0, k = 0; k < H1_NKEYS; k++) {
+            n = 53 + k + 12 * st.octave;
+            if (st.keys[1] ? scale_snap(n) == n : n % 12 == st.keys[0] % 12)
+                m |= 1u << k;                    /* (CHROM: every key is in it, so the roots alone) */
+        }
+        return m ^ eng_sounding_lo();
+    }
     return eng_sounding_lo();
 }
 

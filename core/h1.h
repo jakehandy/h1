@@ -108,7 +108,7 @@ void h1_loop_saved(void);
 /* The song (0.3.3): the sequencer's settings, the steps and the layers, as a blob to save right after the loop's
  * in the same record, so they keep while the loop plays (the state waits for silence). h1_loop_load takes the two
  * together and the loop's alone; dirty() moves with the song too, and h1_song is called with h1_loop for a save. */
-#define H1_SONG_MAX 2316u
+#define H1_SONG_MAX 2352u
 const void *h1_song(uint32_t *size);
 uint32_t h1_loop_gen(void);                     /* moves whenever what is recorded changes */
 int h1_loop_room(void);                          /* notes that still fit in the loop (0: full) */
@@ -139,7 +139,8 @@ uint32_t h1_voices_active(void);
 int h1_state_asked(void);                         /* SAVE was pressed: save at once, silent or not */
 int h1_silent(void);                             /* no voice, and the output silent for half a second: flash may stall the sound */
 void h1_load(int pct);                           /* the port: the share of the block's time the last render took, for the CPU guard */
-int h1_screen(void);                             /* SETUP's SCREEN: 0 AUTO, 1 FAST, 2 SAFE (the port sets the panel's clock) */
+int h1_screen(void);
+int h1_volume_cap(void);                         /* PLAY's MAX VOL (0.4.0): a place on MASTER's travel, 200..1000 */                             /* SETUP's SCREEN: 0 AUTO, 1 FAST, 2 SAFE (the port sets the panel's clock) */
 int h1_midi_channel(void);                       /* MIDI's CHAN: 0 every channel (out on 1), else 1..16, in and out */
 
 /* Every encoder as a number: returns what it is set to right now and (where the pointers are not

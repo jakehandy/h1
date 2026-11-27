@@ -542,10 +542,18 @@ static uint8_t rec_part[128], rec_lay[128];      /* where each note held in a ta
 static uint32_t rec_open[4];                     /* notes whose note-on went in and whose note-off has room kept */
 static int nopen;
 
+static f32 take_len, take_left;                 /* a short take (take_fit): its length, what is left of it */
+#define TAKE_TAG 1u                              /* LEv.rsv of a short take's notes, until it is repeated out */
+static void take_close(void);
 static void rec_forget(void)
 {
+    int i;
     rec_open[0] = rec_open[1] = rec_open[2] = rec_open[3] = 0;
     nopen = 0;
+    if (take_left > 0.0f)                        /* (a short take given up: its notes stay, once, as recorded) */
+        for (i = 0; i < nlev; i++)
+            lev[i].rsv = 0;
+    take_len = take_left = 0.0f;
 }
 
 /* the first event at or after tick t */
@@ -603,6 +611,15 @@ static void layers_close(void)
 
 /* the layers no recorded note is on (in the loop or the steps) let go, all of their settings with them: after
  * a clear, so the layer view shows only what is there and a mute or solo left behind hushes nothing (#55, #71) */
+/* a layer gone: out of SONG's parts (its slot taken again later is a new layer to the song) */
+static void song_drop(int i)
+{
+    int j;
+    songp.known &= (uint16_t)~(1u << i);
+    for (j = 0; j < NSONG; j++)
+        songp.mask[j] &= (uint16_t)~(1u << i);
+}
+
 static void layers_tidy(void)
 {
     uint8_t used[NLAYER];
@@ -619,6 +636,7 @@ static void layers_tidy(void)
     for (i = 0; i < NLAYER; i++)
         if (!used[i] && !st.layer[i].open) {
             uint8_t *p = (uint8_t *)&st.layer[i];
+            song_drop(i);
             for (j = 0; j < (int)sizeof(Layer); j++)
                 p[j] = 0;
         }
@@ -658,6 +676,17 @@ static int layer_of(int lay, int part)
  * muted track's are); its volume is a gain on its voices in the mix. Only with LAYERS on: off, every
  * note follows the hand, layers or not. */
 static uint32_t lay_hushed;                      /* bit l - 1: layer l is not heard, as of this block */
+SongParts songp;
+static int song_cur;                             /* the part playing (not saved: a song starts at its first) */
+int eng_song_part(void) { return songp.n ? song_cur % songp.n : 0; }
+static void lay_hush_set(void);
+static void song_next(void)
+{
+    if (songp.on && songp.n) {
+        song_cur = (song_cur + 1) % songp.n;
+        lay_hush_set();
+    }
+}
 static void lay_hush_set(void)
 {
     uint32_t solo = 0, mute = 0;
@@ -667,6 +696,8 @@ static void lay_hush_set(void)
             if (st.layer[i].rsv[1] & LAY_SOLO) solo |= 1u << i;
             if (st.layer[i].rsv[1] & LAY_MUTE) mute |= 1u << i;
         }
+    if (songp.on && songp.n && !solo)            /* SONG: the part says what is heard (a solo still wins) */
+        mute = songp.known & ~songp.mask[song_cur % songp.n];
     lay_hushed = layers() ? (solo ? ~solo : mute) : 0u;
 }
 static int lay_hush(int lay) { return lay >= 1 && lay <= NLAYER && (lay_hushed >> (lay - 1) & 1u); }
@@ -834,6 +865,10 @@ static void loop_tick(f32 dticks)
     b = a + dticks;
     if (s != LOOP_REC)
         loop_play_range(a, b);
+    if (s == LOOP_DUB && take_left > 0.0f && (take_left -= dticks) <= 0.0f) {
+        loop_pos = b < loop_len ? b : b - loop_len;   /* (the take's end, where its held notes end) */
+        take_close();
+    }
     click_run(b, s == LOOP_PLAY ? click_mode() == CLICK_ON : click_mode() != CLICK_OFF);
     if (b >= loop_len) {
         b -= loop_len;
@@ -846,6 +881,7 @@ static void loop_tick(f32 dticks)
             layers_close();
         }
         click_at = -1;
+        song_next();                             /* SONG: the next part, as it comes round */
         loop_play_range(0.0f, b);
     }
     loop_pos = b;
@@ -897,11 +933,90 @@ static APART void loop_record(int note, int on, int vel)
     e->part = (uint8_t)part;
     e->lay = (uint8_t)lay;
     e->vel = (uint8_t)(on ? iclamp(vel, 1, 127) : 0);
-    e->rsv = 0;
+    e->rsv = take_left > 0.0f ? TAKE_TAG : 0u;
     if (on) {
         rec_open[note >> 5] |= 1u << (note & 31);
         nopen++;
     }
+    loop_gen++;
+}
+
+/* ---- a take's own length (0.4.0, #69): with LAYERS on and a loop there, BARS is the next take's length.
+ * Longer than the loop: the loop is repeated out to it first (each layer plays again, as it was) and the take
+ * goes on over all of it. Shorter: the take closes itself once that long, and what it recorded is repeated
+ * out over the loop (a 2-bar drum under 16 bars). Bars are powers of two, so one always divides the other;
+ * a meter changed since (no whole number of takes in the loop) leaves the take as long as the loop. */
+
+static void loop_extend(f32 want)               /* every event again, a loop's length on, out to want */
+{
+    int n0 = nlev, k, i, copies = (int)(want / loop_len + 0.5f);
+    for (k = 1; k < copies; k++)
+        for (i = 0; i < n0; i++) {
+            if (nlev + nopen + 1 > NLEV) {
+                loop_full++;
+                goto done;
+            }
+            lev[nlev] = lev[i];                  /* (each copy after the last, a loop later: still in order) */
+            lev[nlev].tick = (uint16_t)(lev[i].tick + (f32)k * loop_len);
+            lev[nlev].on &= 0x7F;
+            nlev++;
+        }
+done:
+    loop_len = want;
+    loop_gen++;
+}
+
+static void take_fit(void)                       /* at a take's start over a loop: BARS against the loop */
+{
+    f32 want = (f32)(loop_bars() * seq_bar_ticks()), r;
+    take_len = take_left = 0.0f;
+    if (!layers() || !nlev || want == loop_len)
+        return;
+    r = want > loop_len ? want / loop_len : loop_len / want;
+    if (r != (f32)(int)r)
+        return;
+    if (want > loop_len)
+        loop_extend(want);
+    else
+        take_len = take_left = want;
+}
+
+static void loop_record(int note, int on, int vel);
+static void take_close(void)                     /* a short take, its length up: closed, and repeated out */
+{
+    int i, k, n, copies = (int)(loop_len / take_len + 0.5f);
+    for (i = 0; i < 128; i++)                    /* (keys still down: their notes end here, in the take) */
+        if (rec_open[i >> 5] >> (i & 31) & 1u)
+            loop_record(i, 0, 0);
+    n = nlev;
+    for (i = 0; i < n; i++) {
+        int j;
+        LEv e;
+        for (j = 0; j < nlev && lev[j].rsv != TAKE_TAG; j++)
+            ;
+        if (j == nlev)
+            break;
+        lev[j].rsv = 0;
+        lev[j].on &= 0x7F;                       /* (heard from now on, as a closed take's notes are) */
+        e = lev[j];
+        for (k = 1; k < copies; k++) {
+            f32 t = (f32)e.tick + (f32)k * take_len;
+            LEv *d;
+            if (t >= loop_len)
+                t -= loop_len;
+            if (nlev + nopen + 1 > NLEV) {
+                loop_full++;
+                break;
+            }
+            d = lev_insert((uint16_t)t);
+            *d = e;
+            d->tick = (uint16_t)t;
+        }
+    }
+    take_len = take_left = 0.0f;
+    loop_state = LOOP_PLAY;
+    rec_forget();
+    layers_close();
     loop_gen++;
 }
 
@@ -1007,7 +1122,10 @@ static void step_tick(f32 dticks)
         int at = step_at;
         step_acc = at >= n ? 0.0f : step_acc - step_len(at);
         at = at + 1 >= n ? 0 : at + 1;
-        if (at == 0) click_at = -1;
+        if (at == 0) {
+            click_at = -1;
+            song_next();                         /* SONG: the next part, as the pattern comes round */
+        }
         step_at = at;
         step_fire(at, step_len(at) * 0.85f);
     }
@@ -1131,6 +1249,8 @@ static void eff_note(int note, int on, int vel, int from_midi)
         click_at = -1;
         loop_state = LOOP_DUB;
         arp_acc = 1e9f;
+        song_cur = 0;
+        take_fit();
     }
     if (on && loop_state == LOOP_ARMED) {
         if (loop_fresh) {
@@ -1265,6 +1385,7 @@ static APART void clear_layer(int lay)
         for (i = 0; i < (int)sizeof(Layer); i++)
             p[i] = 0;
     }
+    song_drop(lay - 1);
     rec_forget();
     loop_gen++;
     if (!nlev && (loop_state == LOOP_IDLE || loop_state == LOOP_PLAY)) {
@@ -1346,8 +1467,13 @@ static void handle(uint32_t e)
             break;
         case LOOP_ARMED: loop_state = nlev ? LOOP_IDLE : LOOP_EMPTY; break;
         case LOOP_REC: loop_state = LOOP_PLAY; rec_forget(); layers_close(); break;
-        case LOOP_PLAY: loop_state = LOOP_DUB; break;
-        default: loop_state = LOOP_PLAY; rec_forget(); layers_close(); break;
+        case LOOP_PLAY: loop_state = LOOP_DUB; take_fit(); break;
+        default:
+            if (take_left > 0.0f) {
+                take_close();                    /* (closed early: what it has, repeated out all the same) */
+                break;
+            }
+            loop_state = LOOP_PLAY; rec_forget(); layers_close(); break;
         }
         break;
     case EV_PLAY:
@@ -1358,6 +1484,7 @@ static void handle(uint32_t e)
                 step_playing = 1;
                 step_at = 0;
                 step_acc = 0.0f;
+                song_cur = 0;
                 click_at = -1;
                 arp_acc = 1e9f;
                 step_fire(0, step_len(0) * 0.85f);
@@ -1373,6 +1500,7 @@ static void handle(uint32_t e)
             loop_pos = 0.0f;
             click_at = -1;
             arp_acc = 1e9f;
+            song_cur = 0;
             loop_state = LOOP_PLAY;
             break;
         }
@@ -1418,6 +1546,9 @@ static void handle(uint32_t e)
         loop_gen++;
         loop_pos = 0.0f;
         loop_state = LOOP_EMPTY;
+        songp.on = songp.n = 0;
+        songp.known = 0;
+        song_cur = 0;
         layers_tidy();
         break;
     default: break;
@@ -2298,7 +2429,7 @@ void eng_snapshot(Vis *vis)
 uint32_t eng_sounding_lo(void)
 {
     uint32_t m = 0;
-    int i, base = 53 + 12 * st.octave;
+    int i, base = 53 + 12 * st.octave + opt[OPT_TRANS] - TRANS_MID;   /* (TRANSPOSE: still on the key played) */
     for (i = 0; i < NVOICE; i++)
         if (voices[i].stage && voices[i].gate) {
             int k = (int)voices[i].note - base;
