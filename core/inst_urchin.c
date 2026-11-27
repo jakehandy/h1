@@ -140,7 +140,7 @@ static f32 kick, kickv, rot, rotv, bump[12], lev, look[2], lookv[2], blink, sinc
 static uint32_t seen;
 static int cs_ready, spin_dir = 1;
 
-static f32 spine(int algo, f32 th, f32 mlo, f32 mfr, f32 I, f32 t)
+static APART f32 spine(int algo, f32 th, f32 mlo, f32 mfr, f32 I, f32 t)
 {
     /* RATIO: every step up adds two spines, the outline melting from one count to the next */
     f32 L = (f32)LOBES[algo] + 2.0f * (mlo - 1.0f);
@@ -162,7 +162,7 @@ static f32 spine(int algo, f32 th, f32 mlo, f32 mfr, f32 I, f32 t)
     }
 }
 
-static void outline(f32 scale, f32 turn, int stepv, f32 w, f32 a)
+static APART void outline(f32 scale, f32 turn, int stepv, f32 w, f32 a)
 {
     f32 xy[2 * UN + 2], cd = cos_turns(turn), sd = sin_turns(turn);
     int i, n = 0;
@@ -175,7 +175,7 @@ static void outline(f32 scale, f32 turn, int stepv, f32 w, f32 a)
     g_poly(xy, n, 1, w, a);
 }
 
-static void eyes(int count, f32 sc, const Vis *vis)
+static APART void eyes(int count, f32 sc, const Vis *vis)
 {
     f32 r = EYE_R[count] * sc, shut = blink < 0.0f ? 0.12f : 1.0f;
     int i;
@@ -200,7 +200,7 @@ static void eyes(int count, f32 sc, const Vis *vis)
     }
 }
 
-static SMALL void urchin_draw(const Vis *vis)          /* (built small: room for BLAB) */
+static SMALL void urchin_draw(const Vis *vis)
 {
     f32 dt = vis->dt, x = vis->k[0] * 4.999f, mlo, mfr, I, A, R0, fz = vis->k[2] * vis->k[2], tail = vis->k[3], mt;
     f32 lvl = 0.0f, tx = 0.0f, ty = 0.0f;

@@ -245,7 +245,9 @@ static void midi_send(uint8_t status, uint8_t d1, uint8_t d2)
  * header reads right holds a whole loop. The newest such record is the loop. A save given up part-way gets a
  * header marked dead, so the records after it can still be found. Slots are erased at start (before the
  * sound) and once the loop is stopped and nothing sounds, all but the one holding the loop.
- * Before this the loop was store object OBJ_LOOP: read once, when the ring holds none. */
+ * A record holds the song after the loop (h1_song: the steps and the layers, 0.3.3), so they keep while it plays.
+ * Before this the loop was store object OBJ_LOOP: read once, when the ring holds none, then emptied once the ring
+ * has the loop (it came back after another firmware had the ring's sectors, #71). */
 #define RING_SECT 5u                     /* sectors a slot */
 #define RING_SLOTS 4u
 #define RING_SLOT_BYTES (RING_SECT * 4096u)
@@ -255,7 +257,7 @@ static void midi_send(uint8_t status, uint8_t d1, uint8_t d2)
 #define RING_DEAD 0x584C3148u            /* "H1LX": a save given up; its length says how far it got */
 #define RING_PAGE 256u
 #define RING_FULL RING_SLOT_BYTES        /* (a slot's fill: no more records go in until it is erased) */
-typedef char loop_fits_a_slot[H1_LOOP_MAX <= RING_SLOT_BYTES - RING_BODY ? 1 : -1];
+typedef char loop_fits_a_slot[H1_LOOP_MAX + H1_SONG_MAX <= RING_SLOT_BYTES - RING_BODY ? 1 : -1];
 typedef char ring_in_the_data_area[RING_BASE >= PLAT_DATA_LO ? 1 : -1];
 
 static struct {
@@ -273,6 +275,9 @@ static struct {
 #define RING_WAIT 20u                    /* (a third of a second: the save keeps clear of the take's own close) */
 static const uint8_t *ring_src;          /* the blob being written, as h1_loop gave it: it holds until a take
                                           * records again (then the loop is dirty again, and saved anew) */
+static const uint8_t *ring_song;         /* and the song after it (h1_song's copy), from ring_n1 on */
+static uint32_t ring_n1;
+static int ring_force;                   /* a loop from OBJ_LOOP: into the ring, dirty or not */
 #define RING_MAX (RING_SLOT_BYTES - RING_BODY)
 
 static uint32_t ring_off(int slot) { return RING_BASE + (uint32_t)slot * RING_SLOT_BYTES; }
@@ -393,7 +398,7 @@ static void ring_step(void)
             if (n > RING_PAGE)
                 n = RING_PAGE;
             for (k = 0; k < n; k++)
-                page[k] = ring_src[ring.at + k];
+                page[k] = ring.at + k < ring_n1 ? ring_src[ring.at + k] : ring_song[ring.at + k - ring_n1];
             ring.crc = crc32_run(ring.crc, page, n);
             if (plat_data_write(off + RING_BODY + ring.at, page, n) != 0) {
                 ring.at += n;                    /* (a failed write: given up, the save tried anew) */
@@ -417,6 +422,7 @@ static void ring_step(void)
                     ring.cur = ring.to;
                     ring.cur_at = ring.to_at;
                     ring.seq++;
+                    ring_force = 0;
                     h1_loop_saved();
                 }
             } else
@@ -425,12 +431,15 @@ static void ring_step(void)
         }
         return;
     }
-    if (!h1_loop_dirty())
+    if (!h1_loop_dirty() && !ring_force)
         ring.wait = 0;
     else if (++ring.wait > RING_WAIT) {
-        uint32_t size, gen = h1_loop_gen();
+        uint32_t size, sn, gen = h1_loop_gen();
         const uint8_t *p = (const uint8_t *)h1_loop(&size);
-        if (!size || size > RING_MAX)
+        ring_song = (const uint8_t *)h1_song(&sn);
+        ring_n1 = size;
+        size += sn;
+        if (sn == size || size > RING_MAX)
             return;
         for (i = 0; i < (int)RING_SLOTS; i++) {  /* the slot holding the loop first, then the others */
             int sl = ring.cur >= 0 ? (ring.cur + i) % (int)RING_SLOTS : i;
@@ -490,6 +499,9 @@ void app_init(void)
     if (plat_cpu2_set(1) == 0)                              /* (app_init is the one moment it can start) */
         h1_two_cores(core2_run, core2_wait);
 #endif
+#if PLAT_USB_CH >= 8
+    h1_stems(plat_usb_ch, PLAT_USB_CH_STRIDE);              /* USB audio's channels 3..10: four stereo stems */
+#endif
     if (last_start_failed())
         return;
     h1_state(&size);
@@ -499,10 +511,14 @@ void app_init(void)
     {                                                       /* then the loop (the state's load empties it) */
         uint32_t len;
         const uint8_t *lp = ring_start(&len);
-        if (lp)
+        if (lp) {
             h1_loop_load(lp, len);
-        else if ((n = plat_store_load(OBJ_LOOP, blob, sizeof blob)) > 0)
+            if (plat_store_size(OBJ_LOOP) > 0)              /* the ring has it: the old one gone, or it would come */
+                plat_store_save(OBJ_LOOP, blob, 0);         /* back whenever the ring holds none (#71) */
+        } else if ((n = plat_store_load(OBJ_LOOP, blob, sizeof blob)) > 0) {
             h1_loop_load(blob, (uint32_t)n);                /* (one saved before the ring: it goes there next) */
+            ring_force = 1;
+        }
     }
 }
 
@@ -517,11 +533,26 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
     float m = held < 0 ? (float)master_q12 * (1.0f / 4096.0f) : p * p;
     float gain = m * m;                                     /* and the square of that: MASTER's curve on the FM-1 */
     uint32_t i, t0 = plat_ticks24(), us;
+#if PLAT_USB_CH >= 8
+    uint32_t run = 0;
+    int16_t *u = plat_usb_ch(0, &run);                      /* the stems, at MASTER too (NULL: nobody records) */
+#endif
     h1_render(lr, n);                                       /* 24-bit, already limited */
     for (i = 0; i < n; i++) {
         gain_now += (gain - gain_now) * 0.004f;             /* ~5 ms: turning MASTER does not click */
         lr[2 * i] = (int32_t)((float)lr[2 * i] * gain_now);
         lr[2 * i + 1] = (int32_t)((float)lr[2 * i + 1] * gain_now);
+#if PLAT_USB_CH >= 8
+        if (u) {
+            int32_t g = (int32_t)(gain_now * 32768.0f), k;
+            if (!run && !(u = plat_usb_ch(i, &run)))
+                continue;
+            for (k = 0; k < 8; k++)
+                u[k] = (int16_t)(u[k] * g >> 15);
+            u += PLAT_USB_CH_STRIDE;
+            run--;
+        }
+#endif
     }
     us = US(plat_ticks24() - t0);
     pf_audio += us;
@@ -540,9 +571,9 @@ void app_panic(void) { h1_midi(0xB0, 123, 0); }
  * them (display off, sleep out, porch, gate, VCOM, power, gammas, then pixel format, scan, inversion and
  * display on), with its two extra settings: the second data line off (E7) and full brightness (51).
  *
- * The panel's clock: M-VAVE's firmware runs it at 12 MHz, fm1-base at 60 (about 44 measured), which the
- * older panels take. SETUP's SCREEN: AUTO is 12 MHz on the newer FM-1s (told apart by their flash, the
- * UC25HQ80, JEDEC B3 60 14) and 60 on the older; FAST is 60 on any; SAFE is 12 on any. */
+ * The panel's clock: M-VAVE's firmware runs it at 12 MHz, fm1-base at 60 (about 44 measured). SETUP's SCREEN:
+ * AUTO and FAST are 60, SAFE is 12 for a screen that shows noise. (0.3.1's AUTO was 12 on the FM-1s with the
+ * newer flash chip, the UC25HQ80: a busy picture then took three times as long to send, 0.3.2.) */
 #ifndef PLAT_HOST
 static const uint8_t SCR_SEQ[] = {         /* command, count, the bytes; command 0: wait that many ms */
     0x28, 0, 0x00, 100,                      /* DISPOFF */
@@ -566,13 +597,11 @@ static const uint8_t SCR_SEQ[] = {         /* command, count, the bytes; command
     0x13, 0,                                 /* NORON */
 };
 #define SCR_SLOW 4u                        /* 12 MHz, M-VAVE's own */
-static int scr_new;                        /* a newer FM-1 (its flash part) */
 static int scr_speed = -1;
 
 static void scr_setup(void)
 {
     uint32_t r, i;
-    scr_new = fl_jedec() == 0xB36014u;
     fm1_lcd_baud(SCR_SLOW);                /* (the setup itself always at the slow clock) */
     for (r = 0; r < sizeof SCR_SEQ; r += 2u + (SCR_SEQ[r] ? SCR_SEQ[r + 1u] : 0u)) {
         if (!SCR_SEQ[r]) {
@@ -590,7 +619,7 @@ static void scr_setup(void)
 
 static void scr_clock(void)                /* SETUP's SCREEN, whenever it changes */
 {
-    int s = h1_screen(), slow = s == 2 || (s == 0 && scr_new);
+    int s = h1_screen(), slow = s == 2;
     if (s == scr_speed)
         return;
     scr_speed = s;

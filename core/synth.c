@@ -601,30 +601,41 @@ static void layers_close(void)
         }
 }
 
+/* the layers no recorded note is on (in the loop or the steps) let go, all of their settings with them: after
+ * a clear, so the layer view shows only what is there and a mute or solo left behind hushes nothing (#55, #71) */
+static void layers_tidy(void)
+{
+    uint8_t used[NLAYER];
+    int i, j;
+    for (i = 0; i < NLAYER; i++)
+        used[i] = 0;
+    for (i = 0; i < nlev; i++)
+        if (lev[i].lay)
+            used[(lev[i].lay - 1) & (NLAYER - 1)] = 1;
+    for (i = 0; i < NSTEP; i++)
+        for (j = 0; j < NSNOTE; j++)
+            if (st.steps[i][j] && st.step_lay[i][j])
+                used[(st.step_lay[i][j] - 1) & (NLAYER - 1)] = 1;
+    for (i = 0; i < NLAYER; i++)
+        if (!used[i] && !st.layer[i].open) {
+            uint8_t *p = (uint8_t *)&st.layer[i];
+            for (j = 0; j < (int)sizeof(Layer); j++)
+                p[j] = 0;
+        }
+}
+
 /* the layer what is played now goes into: the open one of the part in hand, or a new one. 0 when there is no
  * room (then the notes follow their part as it is, as they did before layers had settings) */
 static APART int layer_take(void)
 {
-    uint8_t used[NLAYER];
-    int part = live_part(), i, j;
+    int part = live_part(), i;
     for (i = 0; i < NLAYER; i++)
         if (st.layer[i].part == part && st.layer[i].open)
             return i + 1;
     for (i = 0; i < NLAYER && st.layer[i].part; i++)
         ;
     if (i == NLAYER) {                           /* full: the layers no recorded note is on any more are let go */
-        for (i = 0; i < NLAYER; i++)
-            used[i] = 0;
-        for (i = 0; i < nlev; i++)
-            if (lev[i].lay)
-                used[(lev[i].lay - 1) & (NLAYER - 1)] = 1;
-        for (i = 0; i < NSTEP; i++)
-            for (j = 0; j < NSNOTE; j++)
-                if (st.steps[i][j] && st.step_lay[i][j])
-                    used[(st.step_lay[i][j] - 1) & (NLAYER - 1)] = 1;
-        for (i = 0; i < NLAYER; i++)
-            if (!used[i] && !st.layer[i].open)
-                st.layer[i].part = 0;
+        layers_tidy();
         for (i = 0; i < NLAYER && st.layer[i].part; i++)
             ;
         if (i == NLAYER)
@@ -840,10 +851,13 @@ static void loop_tick(f32 dticks)
     loop_pos = b;
 }
 
+static int arp_recorded(void);
 static APART void loop_record(int note, int on, int vel)
 {
     static const f32 Q[3] = {0.0f, 24.0f, 48.0f};
     f32 t = loop_pos, q = Q[st.seq[3] < 3 ? st.seq[3] : 0];
+    if (q > 0.0f && arp_recorded())              /* the arpeggiator's notes to its own RATE, not to SNAP's 1/16: its */
+        q = RATE_TICKS[st.ip[cur_i].arp[1] < 6 ? st.ip[cur_i].arp[1] : 3];   /* triplets and 1/32s kept (#49) */
     int part, lay, kept;
     LEv *e;
     note &= 127;
@@ -1373,6 +1387,7 @@ static void handle(uint32_t e)
             if (st.seq[0] == SEQ_STEP) {
                 for (i = 0; i < NSTEP; i++)
                     step_clear_inst(i, inst);
+                layers_tidy();
                 break;
             }
             for (i = 0; i < nlev; i++)
@@ -1385,6 +1400,7 @@ static void handle(uint32_t e)
                 loop_pos = 0.0f;
                 loop_state = LOOP_EMPTY;
             }
+            layers_tidy();
             break;
         }
         if (st.seq[0] == SEQ_STEP) {
@@ -1393,6 +1409,7 @@ static void handle(uint32_t e)
             for (i = 0; i < NSTEP; i++)
                 step_clear(i);
             step_cursor = 0;
+            layers_tidy();
             break;
         }
         loop_release();
@@ -1401,6 +1418,7 @@ static void handle(uint32_t e)
         loop_gen++;
         loop_pos = 0.0f;
         loop_state = LOOP_EMPTY;
+        layers_tidy();
         break;
     default: break;
     }
@@ -1696,6 +1714,44 @@ static int voice_key(const Voice *v)
     return v->part;
 }
 
+/* ---- stems (USB audio's channels 3..10) --------------------------------------------------------
+ * Four stereo stems beside the master, each an instrument after its post and its own volume, before what runs
+ * over the whole mix (the rumble filter, TONE, ECHO, SPACE, the metronome, the cue): 3-4, 5-6 and 7-8 are the
+ * instruments of the recorded layers in the layer view's order, then the instrument in hand, one pair each; 9-10
+ * everything else. Two layers on one instrument share its pair (an instrument's post runs over all its voices at
+ * once). A layer no note is on any more (the loop cleared, the layers kept) takes none; a muted one keeps its
+ * own. The limiter's gain goes on them as on the master, so they add up to the master without its effects. Only
+ * while a computer records (the port's get gives a frame, h1_stems); otherwise none of it runs. */
+#define NSTEM 4
+static f32 stem_b[2][NSTEM][2][CTRL];           /* two blocks: the one heard (the limiter looks a block ahead) and the next */
+static uint8_t stem_ok[2], stem_w, stem_of[NINST];
+static int stem_on;
+static int16_t *(*stem_get)(uint32_t off, uint32_t *run);
+static uint32_t stem_stride;
+static volatile uint32_t lay_used = ~0u;         /* bit l - 1: layer l has notes (eng_layer_count, the main loop) */
+
+void eng_stems(int16_t *(*get)(uint32_t off, uint32_t *run), uint32_t stride)
+{
+    stem_get = get;
+    stem_stride = stride;
+}
+
+static APART void stem_map(void)
+{
+    int i, k = 0, in;
+    for (i = 0; i < NINST; i++)
+        stem_of[i] = 255;
+    for (i = 0; i <= NLAYER; i++) {
+        in = i < NLAYER ? (layers() && st.layer[i].part && (lay_used >> i & 1u) ? PART_INST(st.layer[i].part) : -1)
+                        : cur_i;                 /* (a muted layer keeps its stem: a take in a DAW keeps its tracks) */
+        if (in >= 0 && stem_of[in] == 255 && k < NSTEM - 1)
+            stem_of[in] = (uint8_t)k++;
+    }
+    for (i = 0; i < NINST; i++)
+        if (stem_of[i] == 255)
+            stem_of[i] = NSTEM - 1;
+}
+
 static void block(f32 *L, f32 *R)
 {
     static f32 bl[CTRL], br[CTRL];               /* one instrument's voices, before its post */
@@ -1773,6 +1829,13 @@ static void block(f32 *L, f32 *R)
     for (i = 0; i < NVOICE; i++)
         if (voices[i].stage)
             imask |= 1u << PART_INST(voices[i].part);
+    stem_ok[stem_w] = (uint8_t)stem_on;
+    if (stem_on) {
+        stem_map();
+        f32 *z = &stem_b[stem_w][0][0][0];
+        for (n = 0; n < NSTEM * 2 * CTRL; n++)
+            z[n] = 0.0f;
+    }
 
     /* Instrument by instrument: each part's voices into the instrument's own pair of buffers, then the
      * instrument's post over the lot. An instrument holds one part's numbers at a time, so its block()
@@ -1929,15 +1992,22 @@ static void block(f32 *L, f32 *R)
             if (fade < 1.0f || g0 != 1.0f || g1 != 1.0f) {
                 f32 g = g0 * fade, dg = (g1 - g0) * fade * (1.0f / (f32)CTRL);
                 for (n = 0; n < CTRL; n++) {
-                    L[n] += bl[n] * g;
-                    R[n] += br[n] * g;
+                    bl[n] *= g;
+                    br[n] *= g;
                     g += dg;
                 }
-            } else
+            }
+            for (n = 0; n < CTRL; n++) {
+                L[n] += bl[n];
+                R[n] += br[n];
+            }
+            if (stem_on) {                       /* and into its stem (USB audio) */
+                f32 *sl = stem_b[stem_w][stem_of[inst]][0], *sr = stem_b[stem_w][stem_of[inst]][1];
                 for (n = 0; n < CTRL; n++) {
-                    L[n] += bl[n];
-                    R[n] += br[n];
+                    sl[n] += bl[n];
+                    sr[n] += br[n];
                 }
+            }
         }
     }
 
@@ -2038,6 +2108,7 @@ static void lim_block(f32 *L, f32 *R)
         L[i] = NL[i];
         R[i] = NR[i];
     }
+    stem_w ^= 1u;                                /* (the stems: the block heard is the other one) */
     block(NL, NR);
     lim_need = lim_peak(NL, NR);
     g1 = g0 + (1.0f - g0) * LIM_REL;
@@ -2048,6 +2119,16 @@ static void lim_block(f32 *L, f32 *R)
         return;
     }
     dg = (g1 - g0) * (1.0f / (f32)CTRL);
+    if (stem_ok[stem_w ^ 1u]) {                  /* the stems heard with this block: the same gain */
+        int k;
+        for (k = 0; k < 2 * NSTEM; k++) {
+            f32 *x = stem_b[stem_w ^ 1u][k >> 1][k & 1], g = g0;
+            for (i = 0; i < CTRL; i++) {
+                g += dg;
+                x[i] *= g;
+            }
+        }
+    }
     for (i = 0; i < CTRL; i++) {
         g0 += dg;
         L[i] *= g0;
@@ -2065,10 +2146,32 @@ int eng_silent(void)
     return !eng_voices() && (quiet_n > (uint32_t)(SR * 0.5f) / CTRL || novoice_n > (uint32_t)(SR * 6.0f) / CTRL);
 }
 
+/* the stems of frames pos.. of the block heard, take of them, into the port's channels from frame at of this render */
+static APART void stems_out(uint32_t at, uint32_t pos, uint32_t take)
+{
+    const f32 (*b)[2][CTRL] = stem_b[stem_w ^ 1u];
+    uint32_t run = 0, i;
+    int16_t *u = 0;
+    if (!stem_ok[stem_w ^ 1u])
+        return;                                  /* (the channels start at 0: silence) */
+    for (i = 0; i < take; i++, run--, u += stem_stride) {
+        int k;
+        if (!run && !(u = stem_get(at + i, &run)))
+            return;
+        for (k = 0; k < 2 * NSTEM; k++) {
+            f32 x = b[k >> 1][k & 1][pos + i] * 29491.0f;   /* 0.9 of full scale, as the master */
+            int32_t v = (int32_t)(x < 0.0f ? x - 0.5f : x + 0.5f);
+            u[k] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
+        }
+    }
+}
+
 void eng_render(int32_t *lr, uint32_t n)
 {
     static f32 L[CTRL], R[CTRL];
     static uint32_t have, pos;                   /* frames of a block not yet handed out */
+    uint32_t at = 0, run;
+    stem_on = stem_get && stem_get(0, &run) != 0;   /* a computer records */
     while (n) {
         uint32_t take, i;
         if (!have) {
@@ -2082,6 +2185,9 @@ void eng_render(int32_t *lr, uint32_t n)
             novoice_n = eng_voices() ? 0u : novoice_n + 1u;
         }
         take = have < n ? have : n;
+        if (stem_on)
+            stems_out(at, pos, take);
+        at += take;
         for (i = 0; i < take; i++) {
 #ifdef H1_FUZZ
             if (L[pos + i] != L[pos + i] || R[pos + i] != R[pos + i])
@@ -2284,6 +2390,10 @@ int eng_loop_load(const uint8_t *b, uint32_t n)
             d->note = e[2] & 127u;
             d->on = e[3] & 1u;
             d->part = b[4] == 1 ? PART_V8(e[4]) : part_ok(e[4]) ? e[4] : 0u;
+            if (d->part && e[5] >= 1 && e[5] <= NLAYER && !st.layer[e[5] - 1].part) {
+                st.layer[e[5] - 1].part = d->part;  /* a layer the state lost (saved apart, before 0.3.3): back, at */
+                layer_snap(&st.layer[e[5] - 1]);    /* full and heard, on the part's settings as they are now */
+            }
             d->lay = (uint8_t)layer_of(e[5], d->part);
             d->vel = e[6] & 127u;
             d->rsv = 0;
@@ -2296,6 +2406,7 @@ int eng_loop_load(const uint8_t *b, uint32_t n)
     loop_pos = 0.0f;
     loop_state = nlev ? LOOP_IDLE : LOOP_EMPTY;
     loop_gen++;
+    layers_tidy();                               /* (layers a state kept that this loop has no note on) */
     return 0;
 }
 
@@ -2317,6 +2428,7 @@ int eng_loop_quiet(void)
 int eng_layer_count(void)
 {
     uint8_t used[NLAYER];
+    uint32_t mask = 0;
     int i, j, n = 0, ne = nlev;
     for (i = 0; i < NLAYER; i++)
         used[i] = 0;
@@ -2329,8 +2441,11 @@ int eng_layer_count(void)
         for (i = 0; i < ne && i < NLEV; i++)
             if (lev[i].lay && lev[i].lay <= NLAYER)
                 used[lev[i].lay - 1] = 1;
-    for (i = 0; i < NLAYER; i++)
+    for (i = 0; i < NLAYER; i++) {
         n += used[i];
+        mask |= (uint32_t)used[i] << i;
+    }
+    lay_used = mask;                             /* (the stems: only a layer with notes takes one) */
     return n;
 }
 

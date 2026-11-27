@@ -36,7 +36,7 @@ key 19 up
 wait 1500
 tap REC
 wait 3000
-expect data.0xC8200 0x48
+expect data.0xC8B00 0x48
 power
 wait 600
 tap PLAY
@@ -54,8 +54,8 @@ wait 300
 tap REC
 # (a save begins a third of a second after the take closes; this one is part-way: its pages begun, no header)
 wait 350
-expect data.0xC8500 <255
-expect data.0xC8400 255
+expect data.0xC9700 <255
+expect data.0xC9600 255
 power
 wait 600
 tap PLAY
@@ -140,7 +140,7 @@ wait 1200
 tap REC
 wait 2000
 expect loop_size 636
-expect data.0xCDA03 0x58
+expect data.0xD0703 0x58
 power
 wait 600
 expect loop_size 636

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.3.3
+
+Identity `FM-1_481000303`. USB audio stems, and fixes from the GitHub issues since 0.3.2.
+
+**Loops and layers**
+- A deleted loop no longer comes back (#71). The loop h1 kept before 0.3.0 was never emptied, and came back
+  whenever the loop's own space held none (another firmware had it, say). It is emptied now, once the loop
+  is safely in its new place.
+- CLEAR ALL clears the layers too (#55, #71): the layer view shows only what is recorded, and a solo left on a
+  cleared layer no longer silences the takes after it.
+- The steps and the layers are saved with the loop, while it plays (#39, #71). They were saved only once
+  nothing sounded, so a pattern written, or a layer recorded, while the loop or the steps played could be gone
+  after a power-off, and the layer view could miss layers that still played. A loop saved by 0.3.2 whose
+  layers were lost gets them back, at full and heard.
+- With SNAP on, the arpeggiator's notes go into the loop on its own RATE (#49). They were snapped to 1/16,
+  which broke triplets and 1/32s.
+
+**USB audio stems**
+- The USB audio input has ten channels: the mix on 1 and 2 as before, and four stereo stems on 3 to 10. The
+  instruments of the loop's layers, in the layer view's order, get a stem each (the instrument in hand the
+  next free one), and the fourth carries the rest. Stems are dry: ECHO, SPACE and TONE are on the mix only.
+  A DAW sees one track per channel; `tools/h1_stems.py` splits a ten-channel recording into stereo files.
+
+## 0.3.2
+
+Identity `FM-1_481000302`.
+
+**Screen**
+- The frame rate is back on FM-1s with the newer flash chip. 0.3.1 sent the picture to the screen at 12 MHz
+  on those units, against 60 on the others, and a busy picture took three times as long to send. SCREEN's
+  AUTO is now the fast clock on every unit. If a screen shows noise or wrong colours, set SCREEN to SAFE on
+  the SETUP page.
+
 ## 0.3.1
 
 Identity `FM-1_481000301`. Fixes from the GitHub issues and Discord since 0.3.0, the layer view, MIDI extras
@@ -10,7 +43,7 @@ setting starts off, so nothing changes until you turn it on.
 - FM-1s from the newer production run have a different screen, and h1 showed it in the wrong colours. h1 now
   sends the screen the same setup the stock firmware does, at start, and runs the newer screen at a slower,
   safe clock. Older units look as before. **SCREEN** on the SETUP page picks the clock: AUTO (the default,
-  by unit), FAST, or SAFE if a screen still shows noise.
+  by unit), FAST, or SAFE if a screen still shows noise. (0.3.2 makes AUTO the fast clock on every unit.)
 
 **Crackles and dropouts**
 - No more crackle at the start (#64), and no more dropouts with the key lights flickering (#58). Both came

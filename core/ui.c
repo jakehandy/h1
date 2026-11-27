@@ -305,7 +305,7 @@ static APART void open_page(int pg)
         }
 }
 
-static void set_seq_mode(int m)
+static APART void set_seq_mode(int m)
 {
     if (m == st.seq[0])
         return;
@@ -485,7 +485,7 @@ static APART void draw_layview(void)
     }
 }
 
-void h1_key(int key, int down)
+SMALL void h1_key(int key, int down)
 {
     if (key < 0 || key >= H1_NKEYS)
         return;
@@ -620,7 +620,7 @@ static void set_inst_vol(int v)
     ring_show(RING_INST);
 }
 
-static void octave(int d)
+static APART void octave(int d)
 {
     if (d == 0) st.octave = 0;
     else st.octave = (int8_t)iclamp(st.octave + d, -2, 2);

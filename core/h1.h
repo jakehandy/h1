@@ -41,6 +41,12 @@ void h1_frame(uint32_t now_ms);                  /* advance the animation and dr
 
 /* audio interrupt side: n stereo frames, signed 24-bit in int32 (fm1-base's app_render format) */
 void h1_render(int32_t *lr, uint32_t n);
+/* Stems, for a USB audio input with 8 channels of the port's own beside the master: get gives the frame off
+ * frames into the render being made (8 int16s, the next frame stride on, for *run frames), or NULL while nobody
+ * records. h1_render then writes four stereo stems there, at the master's scale before MASTER: the instruments of
+ * the recorded layers in the layer view's order, then the one in hand, a pair each, and everything else on the
+ * fourth; each after its own volume, without the effects over the whole mix. Set it before the audio starts. */
+void h1_stems(int16_t *(*get)(uint32_t off, uint32_t *run), uint32_t stride);
 
 /* A second core, where a port has one. run hands it fn(arg) and returns 1, or returns 0 (then the core
  * that asked does the work); wait returns 0 when the job is back, anything else if it was dropped (then
@@ -99,6 +105,11 @@ const void *h1_loop_export(uint32_t *size, uint8_t meta[H1_META_N]);
 int h1_loop_quiet(void);                         /* 1: the loop is stopped (or empty), no take going */
 void h1_loop_saved(void);
 #define H1_LOOP_MAX 16396u                       /* 12 + 8 x 2048 */
+/* The song (0.3.3): the sequencer's settings, the steps and the layers, as a blob to save right after the loop's
+ * in the same record, so they keep while the loop plays (the state waits for silence). h1_loop_load takes the two
+ * together and the loop's alone; dirty() moves with the song too, and h1_song is called with h1_loop for a save. */
+#define H1_SONG_MAX 2316u
+const void *h1_song(uint32_t *size);
 uint32_t h1_loop_gen(void);                     /* moves whenever what is recorded changes */
 int h1_loop_room(void);                          /* notes that still fit in the loop (0: full) */
 
