@@ -678,6 +678,14 @@ static uint32_t lay_hushed;                      /* bit l - 1: layer l is not he
 SongParts songp;
 static int song_cur;                             /* the part playing (not saved: a song starts at its first) */
 int eng_song_part(void) { return songp.n ? song_cur % songp.n : 0; }
+static void lay_hush_set(void);
+static void song_next(void)
+{
+    if (songp.on && songp.n) {
+        song_cur = (song_cur + 1) % songp.n;
+        lay_hush_set();
+    }
+}
 static void lay_hush_set(void)
 {
     uint32_t solo = 0, mute = 0;
@@ -872,10 +880,7 @@ static void loop_tick(f32 dticks)
             layers_close();
         }
         click_at = -1;
-        if (songp.on && songp.n) {               /* SONG: the next part, as it comes round */
-            song_cur = (song_cur + 1) % songp.n;
-            lay_hush_set();
-        }
+        song_next();                             /* SONG: the next part, as it comes round */
         loop_play_range(0.0f, b);
     }
     loop_pos = b;
@@ -1116,7 +1121,10 @@ static void step_tick(f32 dticks)
         int at = step_at;
         step_acc = at >= n ? 0.0f : step_acc - step_len(at);
         at = at + 1 >= n ? 0 : at + 1;
-        if (at == 0) click_at = -1;
+        if (at == 0) {
+            click_at = -1;
+            song_next();                         /* SONG: the next part, as the pattern comes round */
+        }
         step_at = at;
         step_fire(at, step_len(at) * 0.85f);
     }
@@ -1475,6 +1483,7 @@ static void handle(uint32_t e)
                 step_playing = 1;
                 step_at = 0;
                 step_acc = 0.0f;
+                song_cur = 0;
                 click_at = -1;
                 arp_acc = 1e9f;
                 step_fire(0, step_len(0) * 0.85f);

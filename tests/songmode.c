@@ -139,6 +139,27 @@ int main(void)
     for (i = 0; i < 3; i++)
         go(100);
 
+    /* ---- STEP: the next part as the pattern comes round ---- */
+    st.seq[0] = SEQ_STEP;
+    songp.n = 2;
+    songp.on = 1;
+    songp.known = 1;
+    songp.mask[0] = 1;
+    songp.mask[1] = 0;
+    tap(H1_BTN_PLAY);
+    go(100);
+    part0 = eng_song_part();
+    {
+        int moved = 0, back = 0;
+        for (i = 0; i < 1600 && !back; i++) {
+            go(10);
+            if (eng_song_part() != part0) moved = 1;
+            else if (moved) back = 1;
+        }
+        CHECK(moved && back, "STEP: the part moves on as the pattern comes round, and back");
+    }
+    tap(H1_BTN_PLAY);
+
     printf("song mode: %d checks, %d failed\n", checks, fails);
     return fails != 0;
 }

@@ -16,7 +16,7 @@ load as they were; every new setting starts as before.
   on. The loop plays one part a pass, the next as it comes round, and the last goes back to the first. OCT-
   takes the last part off. The view's title says `SONG 2/4` while it plays. With the song on, the part says
   what is heard (a solo still wins); a layer recorded after the parts were made plays in all of them. The
-  parts are saved with the loop, and CLEAR ALL clears them.
+  parts are saved with the loop, and CLEAR ALL clears them. In STEP the same, a part a time round the pattern.
 
 **A new PLAY page** (after SETUP, with SELECT)
 - **FX**: EACH (as before) or ALL. ALL gives every instrument the FX of the one in hand, and a change on the FX
