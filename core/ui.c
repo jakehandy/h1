@@ -284,7 +284,7 @@ static APART void open_page(int pg)
         }
 }
 
-static void set_seq_mode(int m)
+static APART void set_seq_mode(int m)
 {
     if (m == st.seq[0])
         return;
@@ -464,7 +464,7 @@ static APART void draw_layview(void)
     }
 }
 
-void h1_key(int key, int down)
+SMALL void h1_key(int key, int down)
 {
     if (key < 0 || key >= H1_NKEYS)
         return;
@@ -593,7 +593,7 @@ static void set_inst_vol(int v)
     ring_show(RING_INST);
 }
 
-static void octave(int d)
+static APART void octave(int d)
 {
     if (d == 0) st.octave = 0;
     else st.octave = (int8_t)iclamp(st.octave + d, -2, 2);
@@ -738,7 +738,7 @@ void h1_toast(const char *text)
     toast_pips = -1;
 }
 
-static void holds(void)
+static APART void holds(void)
 {
     layview_hold();
     /* hold EDIT: the ring comes up with the volume of the instrument in hand, for SELECT to turn. (A
@@ -1047,7 +1047,7 @@ SMALL void h1_control_set(int enc, int v)
 }
 
 /* ---- palette ---------------------------------------------------------------------------- */
-static void build_palette(void)
+static APART void build_palette(void)
 {
     const uint8_t *ink = st.ink[st.inst];
     f32 bright = (f32)st.glo[3] * 0.01f;

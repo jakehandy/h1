@@ -41,6 +41,12 @@ void h1_frame(uint32_t now_ms);                  /* advance the animation and dr
 
 /* audio interrupt side: n stereo frames, signed 24-bit in int32 (fm1-base's app_render format) */
 void h1_render(int32_t *lr, uint32_t n);
+/* Stems, for a USB audio input with 8 channels of the port's own beside the master: get gives the frame off
+ * frames into the render being made (8 int16s, the next frame stride on, for *run frames), or NULL while nobody
+ * records. h1_render then writes four stereo stems there, at the master's scale before MASTER: the instruments of
+ * the recorded layers in the layer view's order, then the one in hand, a pair each, and everything else on the
+ * fourth; each after its own volume, without the effects over the whole mix. Set it before the audio starts. */
+void h1_stems(int16_t *(*get)(uint32_t off, uint32_t *run), uint32_t stride);
 
 /* A second core, where a port has one. run hands it fn(arg) and returns 1, or returns 0 (then the core
  * that asked does the work); wait returns 0 when the job is back, anything else if it was dropped (then

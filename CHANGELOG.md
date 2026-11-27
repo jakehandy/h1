@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3
+
+Identity `FM-1_481000303`.
+
+**USB audio stems**
+- The USB audio input has ten channels: the mix on 1 and 2 as before, and four stereo stems on 3 to 10. The
+  instruments of the loop's layers, in the layer view's order, get a stem each (the instrument in hand the
+  next free one), and the fourth carries the rest. Stems are dry: ECHO, SPACE and TONE are on the mix only.
+  A DAW sees one track per channel; `tools/h1_stems.py` splits a ten-channel recording into stereo files.
+
 ## 0.3.2
 
 Identity `FM-1_481000302`.

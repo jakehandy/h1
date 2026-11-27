@@ -333,6 +333,7 @@ int eng_layer_rec(void);                         /* main loop: the layer a take 
 int eng_loop_used(void);                         /* main loop: the loop's events (a note is two), of NLEV */
 uint32_t eng_loop_full(void);                    /* main loop: moves each time a full loop turns a note away */
 void eng_render(int32_t *lr, uint32_t n);
+void eng_stems(int16_t *(*get)(uint32_t off, uint32_t *run), uint32_t stride);
 void eng_snapshot(Vis *vis);                     /* main loop: copy what the picture needs */
 uint32_t eng_sounding_lo(void);                  /* notes sounding, as key bits for the LEDs */
 int eng_seq_leds(uint32_t *out, int page_open, int blink);   /* the pattern on the white keys; 0: not showing */
