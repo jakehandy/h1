@@ -16,7 +16,7 @@ uint32_t eng_rng = 0x2F6E2B1u;
 
 const InstDef *const insts[NINST] = {&inst_cozy, &inst_orbit, &inst_koi, &inst_haunt, &inst_tide,
                                      &inst_pip, &inst_bonk, &inst_urchin, &inst_twang, &inst_lava,
-                                     &inst_knot, &inst_ink, &inst_bard, &inst_turbo, &inst_tilt, &inst_plunk};
+                                     &inst_knot, &inst_ink, &inst_bard, &inst_turbo, &inst_tilt, &inst_plunk, &inst_blab};
 
 /* Each algorithm against the rest, so that turning the encoder through the instruments is not a ride on
  * the volume: measured on the same phrase played on every one of them (the order is insts[]'s). */
@@ -37,6 +37,7 @@ static const f32 algo_gain[NINST][NALGO] = {           /* (0: an algorithm the i
     /* TURBO  */ {1.189f, 1.000f, 1.000f, 1.189f, 1.585f, 1.000f, 1.259f, 1.000f, 0.000f},
     /* TILT   */ {0.750f, 0.668f, 0.750f, 0.750f, 1.059f, 1.000f, 1.189f, 0.447f, 0.000f},
     /* PLUNK  */ {1.000f, 1.189f, 1.000f, 1.122f, 1.000f, 0.891f, 1.334f, 1.122f, 0.000f},
+    /* BLAB   */ {0.841f, 1.122f, 0.891f, 1.000f, 1.122f, 1.000f, 0.944f, 1.000f, 0.000f},
 };
 
 static f32 SR = 44100.0f, ISR = 1.0f / 44100.0f;
@@ -643,7 +644,7 @@ static void layers_tidy(void)
 
 /* the layer what is played now goes into: the open one of the part in hand, or a new one. 0 when there is no
  * room (then the notes follow their part as it is, as they did before layers had settings) */
-static int layer_take(void)
+static APART int layer_take(void)
 {
     int part = live_part(), i;
     for (i = 0; i < NLAYER; i++)
@@ -887,7 +888,7 @@ static void loop_tick(f32 dticks)
 }
 
 static int arp_recorded(void);
-static void loop_record(int note, int on, int vel)
+static APART void loop_record(int note, int on, int vel)
 {
     static const f32 Q[3] = {0.0f, 24.0f, 48.0f};
     f32 t = loop_pos, q = Q[st.seq[3] < 3 ? st.seq[3] : 0];

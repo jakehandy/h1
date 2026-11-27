@@ -181,7 +181,7 @@ static void contour(f32 level, f32 w, f32 a)
     }
 }
 
-static void lava_draw(const Vis *vis)
+static SMALL void lava_draw(const Vis *vis) /* (built small: room for BLAB) */
 {
     f32 dt = vis->dt, t = vis->t, fold = vis->k[0], heat = vis->k[1], lean = (vis->k[2] - 0.0f), sub = vis->k[3];
     f32 speed = 0.35f + 1.6f * heat, nlev = 2.0f + fold * 6.0f, mt = smooth01(vis->algo_t), pool = 2.6f, strata = 0.0f, swirl = 0.0f;

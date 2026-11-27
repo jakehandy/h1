@@ -112,11 +112,12 @@ typedef char v4_is_664_bytes[H1_VERSION_4_SIZE == 664u ? 1 : -1];   /* what the 
 typedef char v5_is_920_bytes[H1_VERSION_5_SIZE == 920u ? 1 : -1];   /* must not move with the layout */
 typedef char v6_is_1880_bytes[H1_VERSION_6_SIZE == 1880u ? 1 : -1];
 typedef char v8_is_3160_bytes[H1_VERSION_8_SIZE == 3160u ? 1 : -1];
-typedef char v9_is_3344_bytes[sizeof(H1State) == 3344u ? 1 : -1];
+typedef char v9_is_3344_bytes[sizeof(H1V9) == 3344u ? 1 : -1];
+typedef char v10_is_3636_bytes[sizeof(H1State) == 3636u ? 1 : -1];
 typedef char old_head_is_the_same[offsetof(H1Old, ip) == offsetof(H1State, ip) ? 1 : -1];
 typedef char the_slots_hold_the_instruments[NINST <= NSLOT && NSLOT * NALGO < 255 ? 1 : -1];
 typedef char meta_holds_the_layers[H1_META_N == 6 + 3 * NLAYER ? 1 : -1];
-typedef char v9_fits_a_store_object[sizeof(H1State) <= 3840u ? 1 : -1];
+typedef char v10_fits_a_store_object[sizeof(H1State) <= 3840u ? 1 : -1];
 static void bytes(void *to, const uint8_t *from, uint32_t n)
 {
     uint8_t *d = (uint8_t *)to;
@@ -173,7 +174,7 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
     int i, j, pg, a, had;
     if (!blob)
         return -1;
-    was = size == sizeof st ? H1_VERSION : size == H1_VERSION_8_SIZE ? 8u : size == H1_VERSION_6_SIZE ? 6u
+    was = size == sizeof st ? H1_VERSION : size == sizeof(H1V9) ? 9u : size == H1_VERSION_8_SIZE ? 8u : size == H1_VERSION_6_SIZE ? 6u
         : size == H1_VERSION_5_SIZE ? 5u : size == H1_VERSION_4_SIZE ? 4u : 0u;
     if (!was)
         return -1;
@@ -184,6 +185,23 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
     if (was == H1_VERSION) {
         bytes(d, b, (uint32_t)sizeof st);
         had = st.ninst < NINST ? st.ninst : NINST;
+    } else if (was == 9u) {
+        /* version 9: the same tables, with room for sixteen instruments */
+        for (n = 0; n < sizeof st; n++)
+            d[n] = 0;
+        bytes(d, b, (uint32_t)offsetof(H1V9, ip));
+        bytes(st.ip, b + offsetof(H1V9, ip), (uint32_t)sizeof(((H1V9 *)0)->ip));
+        bytes(st.ink, b + offsetof(H1V9, ink), (uint32_t)sizeof(((H1V9 *)0)->ink));
+        st.ninst = b[offsetof(H1V9, ninst)];
+        bytes(st.rsv, b + offsetof(H1V9, rsv), (uint32_t)sizeof st.rsv);    /* (0.3.1's MIDI and SETUP settings) */
+        bytes(st.steps, b + offsetof(H1V9, steps), (uint32_t)sizeof st.steps);
+        bytes(st.step_part, b + offsetof(H1V9, step_part), (uint32_t)sizeof st.step_part);
+        bytes(st.knob, b + offsetof(H1V9, knob), (uint32_t)sizeof(((H1V9 *)0)->knob));
+        bytes(st.step_vel, b + offsetof(H1V9, step_vel), (uint32_t)sizeof st.step_vel);
+        bytes(st.step_lay, b + offsetof(H1V9, step_lay), (uint32_t)sizeof st.step_lay);
+        bytes(st.layer, b + offsetof(H1V9, layer), (uint32_t)sizeof st.layer);
+        had = st.ninst < NINST ? st.ninst : NINST;
+        if (had > (int)H1_V9_NSLOT) had = (int)H1_V9_NSLOT;
     } else {
         /* An older state, of fourteen instruments of eight algorithms: each of its tables goes to the start
          * of this one's, and its parts are counted now. Before version 8 a step's notes have no velocity
@@ -247,6 +265,12 @@ SMALL int h1_state_load(const void *blob, uint32_t size)
     opt_unpack();                                /* (0.3.0 and before kept zeros there: every setting as it was) */
     st.ninst = NINST;
     st.version = H1_VERSION;
+    for (n = 0; n < NWORDS; n++) {               /* BLAB's words: letters and spaces, ended */
+        char c = st.words[n];
+        if (n == NWORDS - 1u || !(c == ' ' || (c >= 'A' && c <= 'Z')))
+            for (; n < NWORDS; n++)
+                st.words[n] = 0;
+    }
     if (st.inst >= NINST) st.inst = 0;
     st.octave = (int8_t)iclamp(st.octave, -2, 2);
     st.hud &= 1;

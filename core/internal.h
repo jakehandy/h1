@@ -8,7 +8,7 @@
 #define NVOICE 8
 #define NSTEP 64                 /* the step sequencer's pattern, at most */
 #define NSNOTE 8                 /* notes a step holds, at most */
-#define NINST 16
+#define NINST 17
 #define NALGO 9                  /* algorithms an instrument may have: eight each, and LAVA a ninth (HOOVER) */
 #define NLAYER 16                /* recorded layers, each with its own settings */
 #define NLEV 2048                /* the loop's events, a note-on and a note-off a note, across every layer */
@@ -75,8 +75,10 @@ typedef struct InstParams {
 #define IP_CUT 0
 
 #define H1_MAGIC 0x31483148u     /* "H1H1" */
-#define H1_VERSION 9u
-/* Version 9 has room for NSLOT instruments of NALGO algorithms, and says in ninst how many it was saved
+#define H1_VERSION 10u
+/* Version 10 is version 9 with room for twenty instruments, not sixteen (BLAB is the seventeenth), and BLAB's
+ * words at the end: H1V9,
+ * below, has version 9's offsets. Version 9 has room for NSLOT instruments of NALGO algorithms, and says in ninst how many it was saved
  * with: the slots from there on are taken as new when it is loaded, so instruments can be added without a
  * new version. Versions 4, 5, 6 and 8 are of fourteen instruments of eight algorithms (H1Old, below: only
  * its offsets are used), their parts packed in bits (PART_V8); 7 was never released. Version 8 is H1Old
@@ -84,7 +86,8 @@ typedef struct InstParams {
  * with version 8. Versions 4 and 5 are the same up to steps: there a step held four notes, not eight
  * (steps[NSTEP][4], then in version 5 step_part[NSTEP][4]), and there was no knob table: an instrument's
  * algorithms shared InstParams.knob0. h1_state_load reads all of them. */
-#define NSLOT 16                 /* instruments the saved state has room for */
+#define NSLOT 20                 /* instruments the saved state has room for */
+#define H1_V9_NSLOT 16u
 #define H1_OLD_NINST 14u
 #define H1_OLD_NALGO 8u
 #define H1_OLD_SNOTE 4u
@@ -137,6 +140,25 @@ typedef struct H1Old {           /* what versions 4 to 8 saved: only its offsets
     Layer layer[NLAYER];
 } H1Old;
 
+#define NWORDS 40
+
+typedef struct H1V9 {            /* what version 9 saved: only its offsets are used */
+    uint32_t magic;
+    uint8_t version, inst;
+    int8_t octave;
+    uint8_t hud, keys[4], glo[4], seq[8];
+    InstParams ip[H1_V9_NSLOT];
+    uint8_t ink[H1_V9_NSLOT][3];
+    uint8_t ninst;
+    uint8_t rsv[4];
+    uint8_t steps[NSTEP][NSNOTE];
+    uint8_t step_part[NSTEP][NSNOTE];
+    uint8_t knob[H1_V9_NSLOT][NALGO][4];
+    uint8_t step_vel[NSTEP][NSNOTE];
+    uint8_t step_lay[NSTEP][NSNOTE];
+    Layer layer[NLAYER];
+} H1V9;
+
 typedef struct H1State {
     uint32_t magic;
     uint8_t version;
@@ -156,6 +178,7 @@ typedef struct H1State {
     uint8_t step_vel[NSTEP][NSNOTE];    /* each step note's velocity, 0 = 127 (version 8) */
     uint8_t step_lay[NSTEP][NSNOTE];    /* each step note's layer, 0 = none (it follows its part as it is now) */
     Layer layer[NLAYER];
+    char words[NWORDS];          /* BLAB's own words, as written on its keys: A to Z and spaces, 0 after */
 } H1State;
 
 /* the four home knobs of an instrument's algorithm, and of the algorithm it is on */
@@ -243,8 +266,11 @@ typedef struct InstDef {
 } InstDef;
 
 extern const InstDef inst_pip, inst_bonk, inst_urchin, inst_twang, inst_lava, inst_knot, inst_ink, inst_tide, inst_haunt,
-                     inst_bard, inst_turbo, inst_orbit, inst_cozy, inst_koi, inst_tilt, inst_plunk;
+                     inst_bard, inst_turbo, inst_orbit, inst_cozy, inst_koi, inst_tilt, inst_plunk, inst_blab;
 extern const InstDef *const insts[NINST];
+/* BLAB's WRITE mode (inst_blab.c): its keys are letters, A to Z and a space; OCT- takes one back */
+extern volatile uint8_t blab_writing;
+void blab_type(int key);                         /* a key 0..26 (26: a space), -1: the last one off, -2: all */
 /* how many algorithms an instrument has: eight, or nine where it names a ninth */
 #define NALGOS(i) (insts[i]->algo[NALGO - 1] ? NALGO : NALGO - 1)
 /* a part that names an instrument and one of the algorithms it has */
@@ -254,8 +280,8 @@ static inline int part_ok(uint32_t p) { return PART_SOME(p) && PART_ALGO(p) < NA
 enum { PG_HOME, PG_FX, PG_KEYS, PG_ENV, PG_LFO, PG_GLO, PG_ARP, PG_SEQ, PG_MIDI, PG_SETUP, PG_PLAY, NPAGE };
 #define PG_BUTTONS PG_MIDI       /* the pages from here on have no button: SELECT goes on to them from SEQ */
 
-/* The MIDI and SETUP pages' settings (0.3.1): each 0 as it was before them. Saved packed in H1State.rsv, so
- * the state stays version 9 and a 0.3.0 reads it (and leaves them off). */
+/* The MIDI and SETUP pages' settings (0.3.1): each 0 as it was before them. Saved packed in H1State.rsv:
+ * 0.3.1 kept the state at version 9 so a 0.3.0 could read it; version 10 (BLAB) carries them over. */
 enum { OPT_CHAN, OPT_BEND, OPT_WHEEL, OPT_PEDAL, OPT_ANIM, OPT_EGGS, OPT_SCREEN, OPT_LEDS,
        OPT_FX, OPT_MAXVOL, OPT_KEYVEL, OPT_TRANS, NOPT };   /* (0.4.0: the PLAY page, from OPT_FX; LEDS 2 = SCALE) */
 #define TRANS_MID 12             /* OPT_TRANS: semitones + 12 (12: none) */
