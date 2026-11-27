@@ -204,7 +204,7 @@ static void lensed(f32 *x, f32 *y)
     *y = 120.0f + dy * k;
 }
 
-static void spawn(int kind, f32 ang, uint32_t *rng)
+static APART void spawn(int kind, f32 ang, uint32_t *rng)
 {
     int i, best = 0;
     for (i = 0; i < NF; i++) {
@@ -232,7 +232,7 @@ static void half_ellipse(f32 cx, f32 cy, f32 rx, f32 ry, f32 w, f32 a)
     g_poly(xy, 13, 0, w, a);
 }
 
-static void body(int kind, f32 x, f32 y, f32 r, f32 rot, f32 seed, f32 a, f32 ang)
+static APART void body(int kind, f32 x, f32 y, f32 r, f32 rot, f32 seed, f32 a, f32 ang)
 {
     f32 xy[2 * 9], c = cos_turns(rot), s = sin_turns(rot);
     int i;
@@ -306,7 +306,7 @@ static void body(int kind, f32 x, f32 y, f32 r, f32 rot, f32 seed, f32 a, f32 an
     }
 }
 
-static void centre(int algo, f32 a, const Vis *vis, f32 S, f32 lev)
+static APART void centre(int algo, f32 a, const Vis *vis, f32 S, f32 lev)
 {
     f32 t = vis->t, cx = 120.0f + 5.0f * sin_turns(t * 0.05f), cy = 120.0f + 4.0f * sin_turns(t * 0.037f + 0.2f), xy[2 * 13];
     int i, k;
@@ -471,7 +471,7 @@ static APART void saucer(const Vis *vis)
         g_disc(x - 14.0f + 7.0f * (f32)i, y + 1.0f - (i == 0 || i == 4 ? 1.5f : 0.0f), 1.5f, ((int)(t * 9.0f) + i) % 5 ? 0.3f : 1.0f);
 }
 
-static void orbit_draw(const Vis *vis)
+static SMALL void orbit_draw(const Vis *vis)
 {
     f32 dt = vis->dt, t = vis->t, sweep = vis->k[0], spin = vis->k[1], shimmer = vis->k[2], grav = vis->k[3], mt = smooth01(vis->algo_t);
     f32 lev = sat(vis->level * 3.0f), speed, rate = 0.02f + 0.5f * spin * spin, S, cr, sr;

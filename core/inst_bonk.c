@@ -214,7 +214,7 @@ static f32 hashf(uint32_t i)
     return (f32)((i ^ (i >> 22)) >> 8) * (1.0f / 16777216.0f);
 }
 
-static void layout(int algo, int i, f32 t, f32 *o)
+static APART void layout(int algo, int i, f32 t, f32 *o)
 {
     f32 a;
     o[0] = HOME[i][0]; o[1] = HOME[i][1]; o[2] = HOME[i][2]; o[3] = HOME[i][3];
@@ -268,7 +268,7 @@ static void layout(int algo, int i, f32 t, f32 *o)
 }
 
 /* one shape at (x, y), size s, turned by r; fill 0..1 floods it, a is the line */
-static void shape(int type, f32 x, f32 y, f32 s, f32 r, f32 fill, f32 a, f32 w)
+static APART void shape(int type, f32 x, f32 y, f32 s, f32 r, f32 fill, f32 a, f32 w)
 {
     f32 c = cos_turns(r), sn = sin_turns(r), xy[16];
     int i;
@@ -353,7 +353,7 @@ static void shape(int type, f32 x, f32 y, f32 s, f32 r, f32 fill, f32 a, f32 w)
 #undef PY
 }
 
-static void bonk_draw(const Vis *vis)
+static SMALL void bonk_draw(const Vis *vis)
 {
     f32 dt = vis->dt, t = vis->t, tune = vis->k[0], decay = vis->k[1], punch = vis->k[2], dirt = vis->k[3];
     f32 scale = 1.28f - 0.56f * tune, glow_k = 1.0f / (0.12f + 0.9f * decay * decay), ring_k = 1.0f / (0.3f + 0.9f * decay);
