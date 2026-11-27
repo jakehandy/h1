@@ -133,9 +133,11 @@ typedef struct Syl {
     uint8_t word;                /* 1: the first syllable of a word */
 } Syl;
 
-/* the phrase being sung, in phones: one at a time, made when WORDS turns to it (SRAM is short) */
-static Syl syl[NSYL];
-static uint8_t nsyl, sylp = 0xFF, ready;
+/* the phrase being sung, in phones: made when WORDS turns to it (SRAM is short), into the other half while
+ * the picture reads this one */
+static Syl syl[2][NSYL];
+static uint8_t nsyl[2], sylp = 0xFF, ready;
+static volatile uint8_t scur;
 /* your own, twice over: the keys write one while the voice sings from the other, then they swap */
 static Syl mine[2][NSYL];
 static uint8_t nmine[2];
@@ -144,8 +146,8 @@ static volatile uint8_t mcur, mine_gen;
 volatile uint8_t blab_writing;
 static volatile int8_t want_letter = -1;         /* WRITE: the letter the next key sings */
 
-static const Syl *syls(int p) { return p ? syl : mine[mcur]; }
-static int nsyls(int p) { return p ? nsyl : nmine[mcur]; }
+static const Syl *syls(int p) { return p ? syl[scur] : mine[mcur]; }
+static int nsyls(int p) { return p ? nsyl[scur] : nmine[mcur]; }
 static const char *shows(int p) { return p ? PHRASE[p - 1].show : mine_show[mcur]; }
 
 /* a token to phones: a vowel, a diphthong (vowel + glide), or a consonant (stops as closure, burst, breath) */
@@ -442,9 +444,11 @@ static APART void build_mine(void)
 
 static APART void hold(int p)                   /* phrase p (0..NPHRASE-1) into syl */
 {
+    int b = scur ^ 1;
     if (p == sylp) return;
-    nsyl = (uint8_t)parse_say(PHRASE[p].say, syl, NSYL);
+    nsyl[b] = (uint8_t)parse_say(PHRASE[p].say, syl[b], NSYL);
     sylp = (uint8_t)p;
+    scur = (uint8_t)b;
 }
 
 /* ---- the mouth -------------------------------------------------------------------------- */
@@ -1167,7 +1171,7 @@ static SMALL void blab_draw(const Vis *vis)
     /* the mouth: where the voice is, or with nothing sounding, the next vowel, barely open */
     {
         int q = M.qi < M.qn ? M.q[M.qi] : -1;
-        const Ph *v = &PH[nx->ph[nx->nuc]];
+        const Ph *v = &PH[nx->ph[nx->nuc < NSP ? nx->nuc : 0]];
         f32 o, w, sh = 0.0f, bi = 0.0f;
         if (on > 0.03f) {
             o = sat((M.f[0] - 230.0f) * (1.0f / 520.0f)) * sat(M.av * 1.4f) * on;
@@ -1333,6 +1337,6 @@ const InstDef inst_blab = {
 };
 
 #ifdef BLAB_TOOLS                                /* (the tuning tools: how many keys a phrase takes) */
-int blab_syllables(int p) { if (p < 0 || p >= NPHRASE) return 0; hold(p); return nsyl; }
+int blab_syllables(int p) { if (p < 0 || p >= NPHRASE) return 0; hold(p); return nsyl[scur]; }
 const char *blab_mine(const char **show, int *n) { *show = mine_show[mcur]; *n = nmine[mcur]; return say; }
 #endif
