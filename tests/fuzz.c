@@ -24,7 +24,15 @@
  * with are in range, and a frame sent the way the device sends it (in pieces, while the next one is
  * drawn) leaves the panel showing exactly that frame. */
 #include <pthread.h>
+#ifdef __APPLE__   /* macOS has no unnamed POSIX semaphores (sem_init fails): Grand Central Dispatch's instead */
+#include <dispatch/dispatch.h>
+typedef dispatch_semaphore_t sem_t;
+#define sem_init(s, shared, v) (*(s) = dispatch_semaphore_create(v), 0)
+#define sem_wait(s) dispatch_semaphore_wait(*(s), DISPATCH_TIME_FOREVER)
+#define sem_post(s) dispatch_semaphore_signal(*(s))
+#else
 #include <semaphore.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -13,6 +13,9 @@
  *                                                        frame took to draw here (the FM-1 takes about 39 times as long)
  */
 #define _POSIX_C_SOURCE 199309L
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE   /* macOS hides snprintf under _POSIX_C_SOURCE alone */
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

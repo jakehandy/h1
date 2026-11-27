@@ -16,8 +16,11 @@
 #define KS_LEN 1024              /* a string's delay line: down to 43 Hz at 44.1 kHz */
 #define SCOPE_N 512
 
-/* big zeroed buffers: the device puts them in its .pool RAM (fm1-base PLAT_POOL) */
-#ifdef H1_DEVICE
+/* big zeroed buffers: the device puts them in its .pool RAM (fm1-base PLAT_POOL). The host simulator
+ * build has H1_DEVICE too, and on macOS a section name needs a segment ("__DATA,...") */
+#if defined(H1_DEVICE) && defined(__APPLE__)
+#define H1_POOL __attribute__((section("__DATA,__pool")))
+#elif defined(H1_DEVICE)
 #define H1_POOL __attribute__((section(".pool")))
 #else
 #define H1_POOL
