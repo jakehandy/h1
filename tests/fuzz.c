@@ -410,8 +410,10 @@ static void part_panel(int steps)
             if (na > H1_LOOP_MAX)
                 die("a saved loop longer than its room", (int)na, 0, 0, 0);
             memcpy(a + 1, p, na);
-            for (n = 12; n + 8 <= (int)na; n += 8)          /* (bit 7 of on: played this pass, not saved) */
-                a[1 + n + 3] &= 1;
+            for (n = 12; n + 8 <= (int)na; n += 8) {        /* (bit 7 of on: played this pass, not saved; */
+                a[1 + n + 3] &= 1;                           /* rsv: a short take's tag, only while it is */
+                a[1 + n + 7] = 0;                            /* taken, and a loop is saved only after) */
+            }
             if (na) {
                 if (h1_loop_load(a + 1, na) != 0)
                     die("a loop it saved itself was refused", (int)na, 0, 0, 0);
